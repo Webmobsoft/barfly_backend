@@ -8,11 +8,11 @@ const {
   generatePresignedUrl,
 } = require("../Controller/aws-service");
 const { createMail } = require("../Utils/mailer");
+const { registerFonts, createPdfHelpers } = require("./pdfUtils");
 
 const genrateCustomerOrderReport = async (req) => {
   const { userId, entityId, orders, mode = "Online" } = req;
 
-  console.log({ userId, entityId, orders, mode });
   const doc = new PDFDocument({
     size: [595, 842],
     margins: { top: 72, bottom: 0, left: 72, right: 72 },
@@ -31,7 +31,6 @@ const genrateCustomerOrderReport = async (req) => {
 
         const s3Upload = await uploadBufferToS3(pdfBuffer, fileKey);
         const signedUrl = generatePresignedUrl(fileKey);
-        console.log("PDF uploaded to S3:", signedUrl);
 
         await CustomerOrderReport.create({
           userId,
@@ -40,8 +39,6 @@ const genrateCustomerOrderReport = async (req) => {
           filename: filename,
           filePath: s3Upload.Location,
         });
-
-        console.log("User found:", currentUser);
 
         if (currentUser && currentUser.email) {
           const mailData = {
@@ -60,30 +57,13 @@ const genrateCustomerOrderReport = async (req) => {
           };
 
           try {
-            const emailResult = await createMail(mailData);
-            if (emailResult) {
-              console.log(
-                `✅ Order report email sent successfully to: ${currentUser.email}`
-              );
-            } else {
-              console.warn(
-                `⚠️ Failed to send email to: ${currentUser.email}, but PDF was generated successfully`
-              );
-            }
+            await createMail(mailData);
           } catch (emailError) {
             console.error(
-              "❌ Error sending order report email:",
+              "Error sending order report email:",
               emailError.message
             );
-            console.warn(
-              "⚠️ Email failed but PDF generation completed successfully"
-            );
           }
-        } else {
-          console.warn("⚠️ User email not found, skipping email notification");
-          console.log(
-            "📄 PDF generated successfully without email notification"
-          );
         }
 
         resolve(signedUrl);
@@ -96,87 +76,39 @@ const genrateCustomerOrderReport = async (req) => {
     doc.on("error", reject);
   });
 
-  doc.registerFont(
-    "Helveticaneue-Light",
-    "Assets/fonts/HelveticaNeueLight.otf"
-  );
-  doc.registerFont(
-    "Helveticaneue-Medium",
-    "Assets/fonts/HelveticaNeueMedium.otf"
-  );
-  doc.registerFont(
-    "Helveticaneue-Regular",
-    "Assets/fonts/HelveticaNeue Regular.ttf"
-  );
+  registerFonts(doc);
 
   const logoPath = "Assets/countr_receipt_logo.png";
-  const pageWidth = doc.page.width;
-  const pageHeight = doc.page.height;
-  const leftMargin = 25;
-  const rightMargin = 20;
-  const topMargin = 30;
-
-  const drawHeader = () => {
-    doc.image(logoPath, leftMargin, topMargin, { width: 250, height: 70 });
-    doc
-      .fontSize(12)
-      .font("Helvetica-Bold")
-      .text(
-        "countr app",
-        pageWidth - leftMargin - rightMargin - 130,
-        topMargin + 25
-      )
-      .fontSize(11)
-      .font("Helveticaneue-Light")
-      .text(
-        "www.countr-app.ch",
-        pageWidth - leftMargin - rightMargin - 130,
-        topMargin + 42
-      )
-      .text(
-        "info@countr-app.ch",
-        pageWidth - leftMargin - rightMargin - 130,
-        topMargin + 56
-      );
-  };
+  const {
+    pageWidth,
+    leftMargin,
+    rightMargin,
+    checkPageBreak,
+    drawHeader,
+    drawFooter,
+  } = createPdfHelpers(doc);
 
   let pageNum = 1;
   let isInPageAdded = false;
 
   doc.on("pageAdded", () => {
-    if (isInPageAdded) return; // prevent infinite recursion
+    if (isInPageAdded) return;
     isInPageAdded = true;
     pageNum++;
-    drawHeader();
-    doc
-      .fontSize(10)
-      .font("Helveticaneue-Light")
-      .fillColor("#888888")
-      .text(`Page ${pageNum}`, 0, pageHeight - 30, {
-        align: "center",
-        width: pageWidth,
-      })
-      .fillColor("#000000");
-    doc.y = topMargin + 90;
+    drawHeader(logoPath);
+    drawFooter(pageNum, "Customer Order");
     isInPageAdded = false;
   });
 
-  // Page 1 header + footer
-  drawHeader();
-  doc
-    .fontSize(10)
-    .font("Helveticaneue-Light")
-    .fillColor("#888888")
-    .text("Page 1", 0, pageHeight - 30, { align: "center", width: pageWidth })
-    .fillColor("#000000");
-  doc.y = topMargin + 90;
+  // Page 1
+  drawHeader(logoPath);
+  drawFooter(pageNum, "Customer Order");
 
   const user = await EntityDetails.findOne({ _id: entityId }).populate({
     path: "userId",
     select: "fullName",
     model: "User",
   });
-  console.log("User details found:", user);
 
   doc
     .fontSize(12)
@@ -254,6 +186,7 @@ const genrateCustomerOrderReport = async (req) => {
 
     const itemTotal = (itemPrice * quantity).toFixed(2);
 
+    checkPageBreak(35);
     doc
       .fontSize(12)
       .font("Helveticaneue-Light")
@@ -264,8 +197,8 @@ const genrateCustomerOrderReport = async (req) => {
   }
 
   const platformFees = orders.platformFees || 0;
-  const tax = orders.tax || 0;
 
+  checkPageBreak(40);
   if (platformFees > 0) {
     doc
       .fontSize(12)
@@ -278,6 +211,7 @@ const genrateCustomerOrderReport = async (req) => {
       );
   }
 
+  checkPageBreak(35);
   doc
     .fontSize(14)
     .font("Helvetica-Bold")

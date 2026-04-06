@@ -1,7 +1,7 @@
 const PDFDocument = require("pdfkit");
 const mongoose = require("mongoose");
 
-const { ORDER_STATUS, STATUS_CODES } = require("../Utils/globalConstants");
+const { ORDER_STATUS } = require("../Utils/globalConstants");
 const Order = require("../Models/Order");
 const Counter = require("../Models/Counter");
 const EntityDetails = require("../Models/EntityDetails");
@@ -11,6 +11,11 @@ const {
 } = require("../Controller/aws-service");
 const SalesReport = require("../Models/SalesReport");
 const ItemDetails = require("../Models/ItemDetails");
+const {
+  formatDateDDMMYYYY,
+  registerFonts,
+  createPdfHelpers,
+} = require("./pdfUtils");
 
 module.exports.ownerTrades = async (req) => {
   const {
@@ -70,81 +75,33 @@ module.exports.ownerTrades = async (req) => {
     doc.on("error", reject);
   });
 
-  doc.registerFont(
-    "Helveticaneue-Light",
-    "Assets/fonts/HelveticaNeueLight.otf"
-  );
-  doc.registerFont(
-    "Helveticaneue-Medium",
-    "Assets/fonts/HelveticaNeueMedium.otf"
-  );
-  doc.registerFont(
-    "Helveticaneue-Regular",
-    "Assets/fonts/HelveticaNeue Regular.ttf"
-  );
+  registerFonts(doc);
 
   const logoPath = "Assets/countr_logo.png";
-  const pageWidth = doc.page.width;
-  const pageHeight = doc.page.height;
-  const leftMargin = 25;
-  const rightMargin = 20;
-  const topMargin = 30;
-
-  const drawHeader = () => {
-    doc.image(logoPath, leftMargin, topMargin, { width: 250, height: 70 });
-    doc
-      .fontSize(12)
-      .font("Helvetica-Bold")
-      .text(
-        "countr app",
-        pageWidth - leftMargin - rightMargin - 130,
-        topMargin + 25
-      )
-      .fontSize(11)
-      .font("Helveticaneue-Light")
-      .text(
-        "www.countr-app.ch",
-        pageWidth - leftMargin - rightMargin - 130,
-        topMargin + 42
-      )
-      .text(
-        "info@countr-app.ch",
-        pageWidth - leftMargin - rightMargin - 130,
-        topMargin + 56
-      );
-  };
+  const {
+    pageWidth,
+    leftMargin,
+    rightMargin,
+    checkPageBreak,
+    drawHeader,
+    drawFooter,
+  } = createPdfHelpers(doc);
 
   let pageNum = 1;
   let isInPageAdded = false;
 
-  // Draw header + page number on every new page
   doc.on("pageAdded", () => {
-    if (isInPageAdded) return; // prevent infinite recursion
+    if (isInPageAdded) return;
     isInPageAdded = true;
     pageNum++;
-    drawHeader();
-    doc
-      .fontSize(10)
-      .font("Helveticaneue-Light")
-      .fillColor("#888888")
-      .text(`Page ${pageNum}`, 0, pageHeight - 30, {
-        align: "center",
-        width: pageWidth,
-      })
-      .fillColor("#000000");
-    doc.y = topMargin + 90;
+    drawHeader(logoPath);
+    drawFooter(pageNum, "Order Documentation");
     isInPageAdded = false;
   });
 
-  // Draw header + page 1 footer
-  drawHeader();
-  doc
-    .fontSize(10)
-    .font("Helveticaneue-Light")
-    .fillColor("#888888")
-    .text("Page 1", 0, pageHeight - 30, { align: "center", width: pageWidth })
-    .fillColor("#000000");
-  doc.y = topMargin + 90;
+  // Page 1
+  drawHeader(logoPath);
+  drawFooter(pageNum, "Order Documentation");
 
   const user = await EntityDetails.findOne({ userId }).populate({
     path: "userId",
@@ -158,7 +115,12 @@ module.exports.ownerTrades = async (req) => {
     .font("Helvetica-Bold")
     .text(user?.entityName || "[Restaurant Name]", leftMargin + 12, doc.y + 50)
     .font("Helveticaneue-Light")
-    .text(user?.userId?.fullName || "[Account Owner Name]")
+    .text(
+      `Wallee Account: ${user?.walleeSpaceId || "-"}`,
+      pageWidth - rightMargin - 200,
+      doc.y - 15
+    )
+    .text(user?.userId?.fullName || "[Account Owner Name]", leftMargin + 12)
     .text(`${user?.location || "[Street]"} ${user?.buildingName || ""}`.trim())
     .text(`${user?.zipcode || "ZIP"} ${user?.city || "City"}`);
 
@@ -167,10 +129,13 @@ module.exports.ownerTrades = async (req) => {
     .font("Helveticaneue-Light")
     .text("Order Documentation", leftMargin + 12, doc.y + 30)
     .fontSize(12)
-    .text(`${fromDate} - ${toDate}`, leftMargin + 15)
+    .text(
+      `${formatDateDDMMYYYY(fromDate)} - ${formatDateDDMMYYYY(toDate)}`,
+      leftMargin + 15
+    )
     .text("Report Exported:", leftMargin + 310, doc.y - 19.5)
     .text(
-      new Date().toLocaleDateString(),
+      formatDateDDMMYYYY(new Date()),
       pageWidth - leftMargin - rightMargin - 125,
       doc.y - 11
     );
@@ -201,7 +166,7 @@ module.exports.ownerTrades = async (req) => {
       $gte: start,
       $lte: end,
     },
-  }); // no populate — keep raw itemId ObjectId so deleted items aren't lost
+  });
 
   const counterMap = {};
   for (const order of orders) {
@@ -226,6 +191,7 @@ module.exports.ownerTrades = async (req) => {
     );
     const avgPerWeek = (totalOrders / weeks).toFixed(1);
 
+    checkPageBreak(40);
     doc
       .fontSize(12)
       .font("Helveticaneue-Light")
@@ -243,10 +209,26 @@ module.exports.ownerTrades = async (req) => {
       );
   }
 
-  // ── Item-wise analysis ───────────────────────────────────────────────
-  console.log("[ownerTrades] total orders:", orders.length);
+  // ── Counter summary line ────────────────────────────────────────────
+  const totalCounterOrders = orders.length;
+  const totalCounterAmount = orders.reduce((sum, o) => {
+    const amount = o.totalAmount;
+    return typeof amount === "number" && !isNaN(amount) ? sum + amount : sum;
+  }, 0);
+  const amountPerOrder =
+    totalCounterOrders > 0 ? totalCounterAmount / totalCounterOrders : 0;
 
-  // Collect all unique raw itemIds (ObjectId preserved, not null-ed by populate)
+  checkPageBreak(30);
+  doc
+    .fontSize(12)
+    .font("Helvetica-Bold")
+    .text(
+      `${amountPerOrder.toFixed(2)}`,
+      pageWidth - leftMargin - rightMargin - 130,
+      doc.y + 20
+    );
+
+  // ── Item-wise analysis ───────────────────────────────────────────────
   const allItemIds = new Set();
   for (const order of orders) {
     for (const orderItem of order.items || []) {
@@ -255,14 +237,17 @@ module.exports.ownerTrades = async (req) => {
     }
   }
 
-  // Batch fetch live item details
   const itemDetailsMap = {};
   if (allItemIds.size > 0) {
-    const objectIds = [...allItemIds].map((id) => new mongoose.Types.ObjectId(id));
-    const itemDocs = await ItemDetails.find({ _id: { $in: objectIds } }, "itemName price").lean();
-    console.log("[ownerTrades] itemDocs fetched:", itemDocs.length);
-    for (const doc of itemDocs) {
-      itemDetailsMap[doc._id.toString()] = doc;
+    const objectIds = [...allItemIds].map(
+      (id) => new mongoose.Types.ObjectId(id)
+    );
+    const itemDocs = await ItemDetails.find(
+      { _id: { $in: objectIds } },
+      "itemName price"
+    ).lean();
+    for (const d of itemDocs) {
+      itemDetailsMap[d._id.toString()] = d;
     }
   }
 
@@ -272,23 +257,28 @@ module.exports.ownerTrades = async (req) => {
       const itemId = orderItem.itemId?.toString();
       if (!itemId) continue;
       const liveDoc = itemDetailsMap[itemId];
-      // Prefer live data; fall back to snapshot stored at order creation
       const itemName = liveDoc?.itemName || orderItem.itemName;
       const itemPrice = liveDoc?.price ?? orderItem.itemPrice ?? 0;
-      console.log(`[ownerTrades] order ${order._id} item:`, JSON.stringify({ itemId, itemName, itemPrice, fromSnapshot: !liveDoc }));
       if (!itemMap[itemId]) {
-        itemMap[itemId] = { quantity: 0, totalAmount: 0, itemName, itemPrice, lastOrderedAt: order.createdAt };
+        itemMap[itemId] = {
+          quantity: 0,
+          totalAmount: 0,
+          itemName,
+          itemPrice,
+          lastOrderedAt: order.createdAt,
+        };
       }
       itemMap[itemId].quantity += orderItem.quantity || 1;
-      itemMap[itemId].totalAmount = itemMap[itemId].itemPrice * itemMap[itemId].quantity;
+      itemMap[itemId].totalAmount =
+        itemMap[itemId].itemPrice * itemMap[itemId].quantity;
       if (order.createdAt > itemMap[itemId].lastOrderedAt) {
         itemMap[itemId].lastOrderedAt = order.createdAt;
       }
     }
   }
-  console.log("[ownerTrades] itemMap:", JSON.stringify(Object.entries(itemMap).map(([id, e]) => ({ id, itemName: e.itemName, quantity: e.quantity, totalAmount: e.totalAmount }))));
 
   if (Object.keys(itemMap).length > 0) {
+    checkPageBreak(80);
     // Divider
     doc
       .moveTo(leftMargin + 12, doc.y + 30)
@@ -315,11 +305,16 @@ module.exports.ownerTrades = async (req) => {
       (a, b) => new Date(b.lastOrderedAt) - new Date(a.lastOrderedAt)
     );
     for (const entry of sortedItems) {
+      checkPageBreak(35);
       doc
         .fontSize(12)
         .font("Helveticaneue-Light")
         .text(entry.itemName || "[Item]", leftMargin + 12, doc.y + 20)
-        .text(`${(entry.itemPrice || 0).toFixed(2)}`, leftMargin + 200, doc.y - 15)
+        .text(
+          `${(entry.itemPrice || 0).toFixed(2)}`,
+          leftMargin + 200,
+          doc.y - 15
+        )
         .text(entry.quantity.toString(), leftMargin + 330, doc.y - 12)
         .text(
           entry.totalAmount.toFixed(2),
@@ -330,7 +325,7 @@ module.exports.ownerTrades = async (req) => {
   }
 
   doc.fillColor("#000000");
-  doc.end(); // triggers the 'end' event
+  doc.end();
 
   return await finished;
 };
