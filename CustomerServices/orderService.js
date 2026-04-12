@@ -25,9 +25,28 @@ const { t, getLanguageFromRequest } = require("../Utils/translator");
 
 const createOrder = async (req, session) => {
   const lang = getLanguageFromRequest(req);
-  const { items, eventId, tableNo, isSelfPickup, note, couponCode } = req.body;
+  const {
+    items,
+    eventId,
+    tableNo,
+    isSelfPickup,
+    note,
+    couponCode,
+    walleeTransactionId,
+  } = req.body;
   const itemsIds = items?.map((doc) => doc.itemId);
   if (!itemsIds) return;
+
+  // Idempotency: if an order already exists for this Wallee transaction,
+  // return it instead of creating a duplicate. Safe for retries / double-taps.
+  if (walleeTransactionId) {
+    const existing = await Order.findOne({
+      walleeTransactionId: Number(walleeTransactionId),
+    }).session(session);
+    if (existing) {
+      return [existing];
+    }
+  }
 
   const menuItems = await ItemDetails.find({ _id: { $in: itemsIds } })
     .populate({ path: "menuCategoryId" })
@@ -140,6 +159,9 @@ const createOrder = async (req, session) => {
     isSelfPickup,
     note,
     platformFees: global.PLATFORM_FEES,
+    walleeTransactionId: walleeTransactionId
+      ? Number(walleeTransactionId)
+      : undefined,
   };
 
   const createdOrder = await Order.create([orderData], { session });

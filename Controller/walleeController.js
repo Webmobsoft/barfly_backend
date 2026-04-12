@@ -96,10 +96,10 @@ router.get("/get-payment-status", async (req, res) => {
   const lang = getLanguageFromRequest(req);
   try {
     const transactionStatus = await getWalleeTransactionStatus(req);
-    
+
     // Ensure response matches frontend expectation: { data: { state: ... } }
     // Frontend checks data.state for "FULFILL" or "AUTHORIZED"
-    return res.status(STATUS_CODES.OK).json({ 
+    return res.status(STATUS_CODES.OK).json({
       data: {
         state: transactionStatus.state, // Frontend checks this field
         transactionId: transactionStatus.transactionId,
@@ -109,7 +109,7 @@ router.get("/get-payment-status", async (req, res) => {
         failedOn: transactionStatus.failedOn,
         failureReason: transactionStatus.failureReason,
         spaceId: transactionStatus.spaceId, // Include space ID if available
-      }
+      },
     });
   } catch (error) {
     console.error("Error while getting Wallee payment status:", error);
@@ -238,7 +238,7 @@ router.get("/get-wallee-space", async (req, res) => {
   const lang = getLanguageFromRequest(req);
   try {
     const response = await getWalleeSpace(req);
-    
+
     // If there's an error in the response, return error
     if (response.error) {
       return res.status(STATUS_CODES.NOT_FOUND).json({

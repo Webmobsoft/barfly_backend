@@ -78,7 +78,11 @@ const createPdfHelpers = (doc) => {
       .fontSize(10)
       .font("Helveticaneue-Light")
       .fillColor("#888888")
-      .text(`${footerLabel} ${new Date().getFullYear()}`, leftMargin + 12, pageHeight - 30)
+      .text(
+        `${footerLabel} ${new Date().getFullYear()}`,
+        leftMargin + 12,
+        pageHeight - 30
+      )
       .text(`Page ${pageNum}`, pageWidth - rightMargin - 200, pageHeight - 30)
       .fillColor("#000000");
     doc.y = topMargin + 90;

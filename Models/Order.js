@@ -51,6 +51,7 @@ const orderSchme = new Schema(
     tax: { type: Number },
     platformFees: { type: Number },
     paymentMethod: { type: String },
+    walleeTransactionId: { type: Number },
   },
   { timestamps: true, minimize: false }
 );

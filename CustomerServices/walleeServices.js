@@ -437,25 +437,21 @@ const handleWalleeWebhook = async (req) => {
         "✅ Webhook signature verified successfully - webhook is authentic"
       );
     } catch (verificationError) {
-      console.error("\n❌ ERROR DURING SIGNATURE VERIFICATION");
-      console.error("Error details:", verificationError);
-      console.error("Error message:", verificationError.message);
-      console.error("Error stack:", verificationError.stack);
-      // For now, log the error but continue processing (for debugging)
-      // In production, you should throw an error here
-      console.warn(
-        "⚠️ Continuing without signature verification for debugging..."
+      console.error(
+        "❌ ERROR DURING SIGNATURE VERIFICATION:",
+        verificationError.message
       );
-      console.warn("⚠️ WARNING: This should be enabled in production!");
+      throwError({
+        status: STATUS_CODES.NOT_AUTHORIZED,
+        message: "Webhook signature verification failed",
+      });
     }
   } else {
-    console.warn("\n⚠️⚠️⚠️ NO X-SIGNATURE HEADER FOUND ⚠️⚠️⚠️");
-    console.warn(
-      "⚠️ Webhook may not be signed - proceeding without verification"
-    );
-    console.warn(
-      "⚠️ This is acceptable for testing but should be enabled in production"
-    );
+    console.error("❌ NO X-SIGNATURE HEADER — rejecting unsigned webhook");
+    throwError({
+      status: STATUS_CODES.NOT_AUTHORIZED,
+      message: "Missing webhook signature",
+    });
   }
 
   // 3️⃣ Parse payload
