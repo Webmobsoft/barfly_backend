@@ -214,11 +214,39 @@ const createWalleeTransaction = async (req) => {
         id: transaction.id,
       });
 
+    // Generate the short-lived credentials token for the native Wallee Mobile SDK.
+    // Same transaction + same merchant space used for creation. This is additive:
+    // if it fails, the app falls back to the WebView via paymentPageUrl, so we do
+    // not fail the request (the transaction is already created).
+    let mobileSdkToken = "";
+    try {
+      mobileSdkToken =
+        await transactionsService.getPaymentTransactionsIdCredentials({
+          space: merchantSpaceIdNumber, // Use validated number
+          id: transaction.id,
+        });
+      // Never log the token value itself — only confirm it is a non-empty string.
+      console.log(
+        `Wallee mobile SDK token generated for transaction ${transaction.id}: ${
+          typeof mobileSdkToken === "string" && mobileSdkToken.length > 0
+            ? "ok"
+            : "empty"
+        }`
+      );
+    } catch (credError) {
+      mobileSdkToken = "";
+      console.error(
+        `Failed to generate Wallee mobile SDK token for transaction ${transaction.id}; app will fall back to WebView:`,
+        credError?.message || credError
+      );
+    }
+
     return {
       type: "payment_page",
       url: paymentPageUrl,
       transactionId: transaction.id,
       state: transaction.state,
+      mobileSdkToken,
     };
   } catch (error) {
     const errorDetails = await parseWalleeError(error);

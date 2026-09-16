@@ -41,6 +41,9 @@ router.post("/create-payment", async (req, res) => {
     return res.status(STATUS_CODES.OK).json({
       paymentPageUrl: result.url, // Frontend expects 'paymentPageUrl' not 'url'
       transactionId: result.transactionId,
+      // Native Wallee Mobile SDK token; app uses it when present, else falls back
+      // to paymentPageUrl (legacy WebView)
+      mobileSdkToken: result.mobileSdkToken,
       // Include additional fields for backward compatibility
       type: result.type,
       state: result.state,
