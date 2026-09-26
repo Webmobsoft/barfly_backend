@@ -4965,6 +4965,7 @@ module.exports.restaurantCancelOrder = async (req) => {
   sendFirebaseNotification({
     topic: `user_${order.userId}`,
     showNotification: true,
+    alertSound: true,
     title: "Order Cancelled",
     body: `Your order #${order.tokenNumber} has been cancelled by the restaurant.`,
     data: {
