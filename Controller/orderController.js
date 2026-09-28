@@ -22,7 +22,7 @@ const {
   updateOfflineOrders,
 } = require("../CustomerServices/orderService");
 
-const { STATUS_CODES } = require("../Utils/globalConstants");
+const { STATUS_CODES, ORDER_STATUS } = require("../Utils/globalConstants");
 const { t, getLanguageFromRequest } = require("../Utils/translator");
 
 const verifyToken = require("../Utils/verifyToken");
@@ -44,7 +44,11 @@ router.post("/create-order", async (req, res) => {
       response = await createOrder(req, session);
     });
     console.log({ response });
-    io.to(response[0].entityId.toString()).emit("newOrder", response);
+    // Only notify owner if payment is already confirmed (non-Wallee orders)
+    // For Wallee payment orders, notification is deferred to webhook SUCCESS handler
+    if (response[0].status !== ORDER_STATUS.PAYMENT_PROCESSING) {
+      io.to(response[0].entityId.toString()).emit("newOrder", response);
+    }
     return res
       .status(STATUS_CODES.OK)
       .json({ message: t("ORDER_CREATE_SUCCESS", lang), response });

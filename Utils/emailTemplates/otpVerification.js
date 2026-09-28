@@ -26,7 +26,8 @@ const otpVerificationTemplate = (otp, purpose = "Email Update") => {
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #667eea; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 40px 30px;
             text-align: center;
         }
@@ -58,7 +59,8 @@ const otpVerificationTemplate = (otp, purpose = "Email Update") => {
             margin-bottom: 30px;
         }
         .otp-container {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            background-color: #f1f3f5; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             border: 2px dashed #667eea;
             border-radius: 10px;
             padding: 30px;

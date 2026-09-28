@@ -18,6 +18,9 @@ const {
 const throwError = require("./../Utils/throwError");
 const { comparePassword, getJwtToken } = require("../Utils/commonFunction");
 const Order = require("../Models/Order");
+const ItemDetails = require("../Models/ItemDetails");
+const Counter = require("../Models/Counter");
+const mongoose = require("mongoose");
 const { generatePresignedUrl } = require("../Controller/aws-service");
 const { createMail } = require("../Utils/mailer");
 const crypto = require("crypto");
@@ -107,7 +110,7 @@ const loginAdmin = async (req) => {
       phoneNumber: 1,
       password: 1,
       isAdmin: 1,
-    },
+    }
   ).lean();
   if (!admin) {
     throwError({
@@ -146,7 +149,11 @@ const getAdmins = async (req) => {
     ];
   }
 
-  const admins = await Admin.find(query).sort({ _id: -1 }).skip(skip).limit(pageLimit).lean();
+  const admins = await Admin.find(query)
+    .sort({ _id: -1 })
+    .skip(skip)
+    .limit(pageLimit)
+    .lean();
   admins.forEach((pass) => {
     delete pass.password;
   });
@@ -262,13 +269,51 @@ const getRestaurants = async (req) => {
 };
 
 const getRestaurantOrders = async (req) => {
-  let { entityId, pageNo = 1, pageLimit = 10 } = req.query;
+  let { entityId, pageNo = 1, pageLimit = 10, searchTerm } = req.query;
 
   pageNo = parseInt(pageNo, 10);
   pageLimit = parseInt(pageLimit, 10);
   const skip = (pageNo - 1) * pageLimit;
 
   const filter = entityId ? { entityId } : {};
+
+  if (searchTerm) {
+    const searchRegex = new RegExp(searchTerm, "i");
+    const searchConditions = [];
+
+    // Search by order _id if searchTerm is a valid ObjectId
+    if (mongoose.Types.ObjectId.isValid(searchTerm)) {
+      searchConditions.push({ _id: new mongoose.Types.ObjectId(searchTerm) });
+    }
+
+    // Search by item name
+    const matchingItems = await ItemDetails.find(
+      { itemName: { $regex: searchRegex } },
+      { _id: 1 }
+    ).lean();
+    if (matchingItems.length > 0) {
+      const matchingItemIds = matchingItems.map((item) => item._id);
+      searchConditions.push({ "items.itemId": { $in: matchingItemIds } });
+    }
+
+    // Search by counter name (scoped to entity if entityId provided)
+    const counterQuery = { counterName: { $regex: searchRegex } };
+    if (entityId) counterQuery.entityId = entityId;
+    const matchingCounters = await Counter.find(counterQuery, {
+      _id: 1,
+    }).lean();
+    if (matchingCounters.length > 0) {
+      const matchingCounterIds = matchingCounters.map((c) => c._id);
+      searchConditions.push({ counterId: { $in: matchingCounterIds } });
+    }
+
+    if (searchConditions.length > 0) {
+      filter.$or = searchConditions;
+    } else {
+      // searchTerm provided but nothing matched → return empty
+      filter._id = null;
+    }
+  }
 
   const orders = await Order.find(filter)
     .populate({ path: "counterId", select: "counterName" })
@@ -313,7 +358,7 @@ const getRestaurantOrders = async (req) => {
 
 const getTransactionLogs = async (req) => {
   let {
-    query: { pageNo = 1, pageLimit = 10 },
+    query: { pageNo = 1, pageLimit = 10, searchTerm },
   } = req;
 
   if (typeof pageLimit === "string") {
@@ -321,9 +366,32 @@ const getTransactionLogs = async (req) => {
   }
   const skip = +(pageNo - 1) * +pageLimit;
 
+  // Build filter — if searchTerm provided, find matching users first
+  const filter = {};
+  if (searchTerm && searchTerm.trim()) {
+    const searchRegex = new RegExp(searchTerm.trim(), "i");
+    const matchingUsers = await User.find(
+      { fullName: { $regex: searchRegex } },
+      { _id: 1 }
+    ).lean();
+    const matchingEntities = await EntityDetails.find(
+      { entityName: { $regex: searchRegex } },
+      { _id: 1 }
+    ).lean();
+    const userIds = matchingUsers.map((u) => u._id);
+    const entityIds = matchingEntities.map((e) => e._id);
+    filter.$or = [
+      ...(userIds.length ? [{ userId: { $in: userIds } }] : []),
+      ...(entityIds.length ? [{ entityId: { $in: entityIds } }] : []),
+    ];
+    if (!filter.$or.length) {
+      return { response: [], totalCount: 0 };
+    }
+  }
+
   // Wallee transaction logs from Commission model
   const [commissions, totalCount] = await Promise.all([
-    Commission.find()
+    Commission.find(filter)
       .populate({
         path: "userId",
         select: "fullName email",
@@ -338,7 +406,7 @@ const getTransactionLogs = async (req) => {
       .skip(skip)
       .limit(pageLimit)
       .lean(),
-    Commission.countDocuments(),
+    Commission.countDocuments(filter),
   ]);
 
   // Enrich with Wallee transaction details (payment method, state, customer info)
@@ -383,7 +451,7 @@ const getTransactionLogs = async (req) => {
         } catch (err) {
           console.error(
             `Failed to fetch Wallee transaction ${walleeTransactionId}:`,
-            err.message,
+            err.message
           );
           // Fallback to commission metadata
           walleeDetails = {
@@ -423,7 +491,7 @@ const getTransactionLogs = async (req) => {
         createdAt: commission.createdAt,
         ...walleeDetails,
       };
-    }),
+    })
   );
 
   return { transactions, totalCount };
@@ -505,22 +573,22 @@ const editRestaurantsOrUsers = async (req) => {
     updateOperations.push(
       EntityDetails.updateOne(
         { _id: entityId },
-        { $set: { status, blockUnblockDate } },
-      ),
+        { $set: { status, blockUnblockDate } }
+      )
     );
 
     if (entity.userId) {
       updateOperations.push(
         User.updateOne(
           { _id: entity.userId },
-          { $set: { status } }, // Set to either ACTIVE or BLOCKED
-        ),
+          { $set: { status } } // Set to either ACTIVE or BLOCKED
+        )
       );
       // Invalidate owner's session when entity is blocked
       if (status === STATUS.BLOCKED) {
         const { KEY_TYPE_PREFIXES } = require("../Utils/globalConstants");
         updateOperations.push(
-          redisClient.del(`${KEY_TYPE_PREFIXES.USER_TOKEN}:${entity.userId}`),
+          redisClient.del(`${KEY_TYPE_PREFIXES.USER_TOKEN}:${entity.userId}`)
         );
       }
     }
@@ -550,7 +618,7 @@ const editRestaurantsOrUsers = async (req) => {
     }
 
     updateOperations.push(
-      User.updateOne({ _id: userId }, { $set: { status, blockUnblockDate } }),
+      User.updateOne({ _id: userId }, { $set: { status, blockUnblockDate } })
     );
     statusCode =
       status === STATUS.BLOCKED
@@ -565,7 +633,7 @@ const editRestaurantsOrUsers = async (req) => {
     if (status === STATUS.BLOCKED) {
       const { KEY_TYPE_PREFIXES } = require("../Utils/globalConstants");
       updateOperations.push(
-        redisClient.del(`${KEY_TYPE_PREFIXES.USER_TOKEN}:${userId}`),
+        redisClient.del(`${KEY_TYPE_PREFIXES.USER_TOKEN}:${userId}`)
       );
     }
   }
@@ -576,13 +644,16 @@ const editRestaurantsOrUsers = async (req) => {
   try {
     if (entityId && entity) {
       const owner = entity.userId
-        ? await User.findOne({ _id: entity.userId }, { email: 1, firstName: 1 }).lean()
+        ? await User.findOne(
+            { _id: entity.userId },
+            { email: 1, firstName: 1 }
+          ).lean()
         : null;
       if (owner?.email) {
         const html = getAccountStatusTemplate(
           entity.entityName || owner.firstName || "User",
           status,
-          "entity",
+          "entity"
         );
         await createMail({
           to: owner.email,
@@ -596,7 +667,7 @@ const editRestaurantsOrUsers = async (req) => {
       const html = getAccountStatusTemplate(
         user.firstName || "User",
         status,
-        "account",
+        "account"
       );
       await createMail({
         to: user.email,
@@ -750,7 +821,7 @@ const sendEmailOtp = async (req) => {
   // Check admin exists with this email
   const adminUser = await Admin.findOne(
     { email: trimmedEmail, status: STATUS.ACTIVE },
-    { _id: 1 },
+    { _id: 1 }
   );
 
   if (!adminUser) {
@@ -763,6 +834,7 @@ const sendEmailOtp = async (req) => {
   // Send OTP
   const redisKey = `${KEY_TYPE_PREFIXES.EMAIL_OTP}${trimmedEmail}`;
   const generatedOtp = crypto.randomInt(100000, 999999).toString();
+  console.log(`[OTP] Admin email=${trimmedEmail} otp=${generatedOtp}`);
 
   await redisClient.setEx(redisKey, 120, generatedOtp);
 

@@ -138,7 +138,7 @@ module.exports.login = async (req) => {
   };
 
   const user = await User.findOne(
-    { email: emailLower, role: ROLES.CUSTOMER },
+    { email: emailLower, role: ROLES.CUSTOMER, status: STATUS.ACTIVE },
     { ...userProjection, status: 1 },
   ).lean();
 
@@ -244,6 +244,7 @@ module.exports.deleteAccount = async (req) => {
     userId,
     status: {
       $in: [
+        globalConstants.ORDER_STATUS.PAYMENT_PROCESSING,
         globalConstants.ORDER_STATUS.WAITING,
         globalConstants.ORDER_STATUS.IN_PROGRESS,
         globalConstants.ORDER_STATUS.READY,
@@ -300,6 +301,7 @@ const sendOtpToEmail = async (
 ) => {
   const redisKey = `${KEY_TYPE_PREFIXES.EMAIL_OTP}${email}`;
   const generatedOtp = crypto.randomInt(100000, 999999).toString();
+  // console.log(`[OTP] Customer/Auth email=${email} otp=${generatedOtp}`); // Logs sensitive data
 
   await redisClient.setEx(redisKey, 120, generatedOtp);
 
@@ -423,13 +425,7 @@ module.exports.resetPassword = async (req) => {
 
   // Verify reset token
   const storedToken = await redisClient.get(resetTokenKey);
-  console.log("Reset Password Debug:", {
-    resetTokenKey,
-    storedTokenExists: !!storedToken,
-    receivedToken: resetToken?.substring(0, 10) + "...",
-    storedToken: storedToken?.substring(0, 10) + "...",
-    tokensMatch: storedToken === resetToken,
-  });
+  // console.log("Reset Password Debug:", {...}); // Logs sensitive token data
   if (!storedToken || storedToken !== resetToken) {
     throwError({
       status: STATUS_CODES.BAD_REQUEST,

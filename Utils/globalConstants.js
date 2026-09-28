@@ -63,6 +63,8 @@ const REDIS_KEYS = {
 };
 
 const ORDER_STATUS = {
+  PAYMENT_PROCESSING: "Payment Processing",
+  PAYMENT_FAILED: "Payment Failed",
   IN_PROGRESS: "In Process",
   READY: "Ready",
   COMPLETED: "Completed",

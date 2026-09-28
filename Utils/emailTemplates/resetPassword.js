@@ -26,7 +26,8 @@ const resetPasswordTemplate = (fullName, resetLink) => {
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #667eea; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 40px 30px;
             text-align: center;
         }
@@ -64,7 +65,8 @@ const resetPasswordTemplate = (fullName, resetLink) => {
         .reset-button {
             display: inline-block;
             padding: 15px 40px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #667eea; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #ffffff;
             text-decoration: none;
             border-radius: 5px;

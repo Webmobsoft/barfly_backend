@@ -42,7 +42,8 @@ const getVerificationCodeTemplate = (code, validFor = "2 minutes") => {
             font-weight: 500;
         }
         .code-container {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            background-color: #e8edf6; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             border-radius: 12px;
             padding: 30px;
             margin: 30px 0;

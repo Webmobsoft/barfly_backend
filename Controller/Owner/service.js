@@ -2170,7 +2170,13 @@ module.exports.getOngoingEventDetails = async (req) => {
 
   const orders = await Order.find({
     eventId: { $in: Array.from(eventDetailsMap.keys()) },
-    status: { $nin: [globalConstants.ORDER_STATUS.WAITING] },
+    status: {
+      $nin: [
+        globalConstants.ORDER_STATUS.WAITING,
+        globalConstants.ORDER_STATUS.PAYMENT_PROCESSING,
+        globalConstants.ORDER_STATUS.PAYMENT_FAILED,
+      ],
+    },
   });
 
   orders.forEach((order) => {
@@ -3504,6 +3510,7 @@ module.exports.editBusinessDetails = async (req) => {
   if (unifiedContactNumber) {
     if (!enteredOtp) {
       const otp = crypto.randomInt(100000, 999999).toString();
+      console.log(`[OTP] Owner/MobileUpdate contactNumber=${unifiedContactNumber} otp=${otp}`);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
       await Otp.findOneAndUpdate(
@@ -3585,6 +3592,7 @@ module.exports.editBusinessDetails = async (req) => {
         });
       }
       const otp = crypto.randomInt(100000, 999999).toString();
+      console.log(`[OTP] Owner/EmailUpdate email=${email} otp=${otp}`);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
       await Otp.findOneAndUpdate(
@@ -4686,6 +4694,7 @@ module.exports.restaurantOpen = async (req) => {
         $nin: [
           globalConstants.ORDER_STATUS.COMPLETED,
           globalConstants.ORDER_STATUS.CANCELLED,
+          globalConstants.ORDER_STATUS.PAYMENT_FAILED,
         ],
       },
     });
@@ -4956,6 +4965,7 @@ module.exports.restaurantCancelOrder = async (req) => {
   sendFirebaseNotification({
     topic: `user_${order.userId}`,
     showNotification: true,
+    alertSound: true,
     title: "Order Cancelled",
     body: `Your order #${order.tokenNumber} has been cancelled by the restaurant.`,
     data: {
@@ -5062,6 +5072,8 @@ module.exports.editEvent = async (req) => {
       $nin: [
         globalConstants.ORDER_STATUS.COMPLETED,
         globalConstants.ORDER_STATUS.CANCELLED,
+        globalConstants.ORDER_STATUS.PAYMENT_PROCESSING,
+        globalConstants.ORDER_STATUS.PAYMENT_FAILED,
       ],
     },
   });

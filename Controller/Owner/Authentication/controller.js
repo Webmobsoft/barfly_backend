@@ -11,7 +11,30 @@ const {
 const { t, getLanguageFromRequest } = require("../../../Utils/translator");
 
 const multer = require("multer");
-const upload = multer({ storage: multer.memoryStorage() });
+// Cap uploads at 10MB so a giant phone-camera image can't OOM the worker
+// (memoryStorage buffers the whole file in RAM). PM2 would otherwise restart
+// the process mid-request and nginx would render its default HTML 500 page.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+// Convert Multer errors into a JSON 400 instead of falling through to
+// Express's default HTML error handler.
+const handleUpload = (field) => (req, res, next) => {
+  upload.single(field)(req, res, (err) => {
+    if (!err) return next();
+    const lang = getLanguageFromRequest(req);
+    const isLimit = err.code === "LIMIT_FILE_SIZE";
+    return res
+      .status(isLimit ? STATUS_CODES.BAD_REQUEST : STATUS_CODES.SERVER_ERROR)
+      .json({
+        message: isLimit
+          ? t("FILE_TOO_LARGE", lang)
+          : err.message || t("FILE_UPLOAD_FAILED", lang),
+      });
+  });
+};
 
 router.post("/login", async (req, res) => {
   const lang = getLanguageFromRequest(req);
@@ -31,7 +54,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.post("/register", upload.single("file"), async (req, res) => {
+router.post("/register", handleUpload("file"), async (req, res) => {
   const lang = getLanguageFromRequest(req);
   try {
     const message = await register(req);
