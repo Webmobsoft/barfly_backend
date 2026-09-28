@@ -262,6 +262,7 @@ const createOfflineOrder = async (req) => {
   sendFirebaseNotification({
     topic: `owner_entity_${entityId}`,
     showNotification: true,
+    alertSound: true,
     title: "New Offline Order",
     body: "A new offline order has been placed.",
     data: {
@@ -1396,6 +1397,7 @@ const cancelOrder = async (req) => {
     sendFirebaseNotification({
       topic: `owner_entity_${order.entityId._id}`,
       showNotification: true,
+      alertSound: true,
       title: "Order Cancelled",
       body: `A customer has cancelled order #${order.tokenNumber || order._id}.`,
       data: {

@@ -670,6 +670,7 @@ const handleWalleeWebhook = async (req) => {
               sendFirebaseNotification({
                 topic: `owner_entity_${entityIdStr}`,
                 showNotification: true,
+                alertSound: true,
                 title: "Order received",
                 body: "You have a new order. Tap to view.",
                 data: {
