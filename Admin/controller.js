@@ -19,6 +19,7 @@ const {
   resetPassword,
   logoutAdmin,
   platformmFees,
+  sendEmailOtp,
 } = require("./services");
 
 router.post("/add-admin", async (req, res) => {
@@ -287,6 +288,21 @@ router.post("/add-platform-fees", async (req, res) => {
         message:
           error.message ||
           t("ADMIN_PLATFORM_FEES_ADD_ERROR", lang),
+      });
+  }
+});
+
+router.post("/send-email-otp", async (req, res) => {
+  const lang = getLanguageFromRequest(req);
+  try {
+    const response = await sendEmailOtp(req);
+    return res.status(STATUS_CODES.OK).json(response);
+  } catch (error) {
+    console.error("Error in admin send email OTP:", error);
+    return res
+      .status(error.status || STATUS_CODES.SERVER_ERROR)
+      .json({
+        message: error.message || t("ADMIN_OTP_ERROR", lang),
       });
   }
 });

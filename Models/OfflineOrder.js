@@ -33,6 +33,10 @@ const offlineOrderLogsSchema = new Schema(
     internalNumber: { type: String, default: "" },
     status: { type: String, enum: Object.values(ORDER_STATUS) },
     totalAmount: { type: Number, default: 0 },
+    // IANA timezone sent by the client at order time (e.g. "Europe/Zurich"),
+    // used to render the receipt PDF in the right local time. Optional —
+    // falls back to RECEIPT_TIMEZONE when absent/invalid.
+    timezone: { type: String },
   },
   { timestamps: true, minimize: false }
 );

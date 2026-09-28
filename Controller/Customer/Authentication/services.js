@@ -1,9 +1,5 @@
-const {
-  STATUS_CODES,
-  ROLES,
-  KEY_TYPE_PREFIXES,
-  STATUS,
-} = require("../../../Utils/globalConstants");
+const globalConstants = require("../../../Utils/globalConstants");
+const { STATUS_CODES, ROLES, KEY_TYPE_PREFIXES, STATUS } = globalConstants;
 const {
   hashPassword,
   comparePassword,
@@ -11,7 +7,12 @@ const {
 } = require("../../../Utils/commonFunction");
 const crypto = require("crypto");
 const { createMail } = require("../../../Utils/mailer");
-const { getVerificationCodeTemplate } = require("../../../Utils/emailTemplates/verificationCodeTemplate");
+const {
+  getVerificationCodeTemplate,
+} = require("../../../Utils/emailTemplates/verificationCodeTemplate");
+const {
+  getWelcomeTemplate,
+} = require("../../../Utils/emailTemplates/welcomeTemplate");
 const throwError = require("../../../Utils/throwError");
 const Otp = require("../../../Models/Otp");
 const User = require("../../../Models/User");
@@ -25,14 +26,18 @@ const Location = require("../../../Models/Location");
 const CustomerOrderReport = require("../../../Models/CustomerOrderReport");
 const UserFeedback = require("../../../Models/UserFeedback");
 const UserAppFeedback = require("../../../Models/UserAppFeedback");
+const Order = require("../../../Models/Order");
+const StripePayment = require("../../../Models/Stripe");
 const { t, getLanguageFromRequest } = require("../../../Utils/translator");
+const { io } = require("../../../app");
 
 module.exports.register = async (req) => {
   const lang = getLanguageFromRequest(req);
   const { email, firstName, lastName, password, dob, countrTag } = req.body;
+  const emailLower = (email || "").trim().toLowerCase();
 
   const userExist = await User.findOne({
-    email,
+    email: emailLower,
     status: STATUS.ACTIVE,
     role: ROLES.CUSTOMER,
   }).lean();
@@ -71,7 +76,7 @@ module.exports.register = async (req) => {
     fullName: `${firstName} ${lastName}`,
     firstName,
     lastName,
-    email,
+    email: emailLower,
     password: hashedPassword,
     status: STATUS.ACTIVE,
     countrTag,
@@ -84,15 +89,45 @@ module.exports.register = async (req) => {
     isPromotionalOn: true,
   });
 
+  // Send welcome email
+  try {
+    const safeName = firstName || "";
+    const welcomeHtmlTemplate = getWelcomeTemplate(safeName, lang);
+    createMail({
+      to: emailLower,
+      subject: `${t("EMAIL_WELCOME_CUSTOMER_SUBJECT", lang)} 🎉`,
+      html: welcomeHtmlTemplate,
+      text: `${t("EMAIL_WELCOME_CUSTOMER_GREETING", lang)}${safeName ? ` ${safeName}` : ""}! ${t("EMAIL_WELCOME_CUSTOMER_INTRO", lang)}`,
+    });
+    console.log(`✅ Welcome email sent successfully to: ${emailLower}`);
+  } catch (error) {
+    console.error(`❌ Error sending welcome email to ${emailLower}:`, error.message);
+    // Don't throw error - registration should succeed even if email fails
+  }
+
+  // Notify admin dashboard — new user registered
+  try {
+    io.to("admin_room").emit("adminDashboardUpdate", {
+      action: "new_user",
+      userId: userObj._id.toString(),
+      name: `${firstName} ${lastName}`,
+    });
+  } catch (err) {
+    console.error("Admin socket emit error:", err.message);
+  }
+
   delete userObj.password;
 
   const token = getJwtToken(userObj, true);
+  const { KEY_TYPE_PREFIXES } = require("../../../Utils/globalConstants");
+  await redisClient.set(`${KEY_TYPE_PREFIXES.USER_TOKEN}:${userObj._id}`, "1");
   return { userObj, token };
 };
 
 module.exports.login = async (req) => {
   const lang = getLanguageFromRequest(req);
   const { email, password } = req.body;
+  const emailLower = (email || "").trim().toLowerCase();
   const userProjection = {
     role: 1,
     firstName: 1,
@@ -103,14 +138,21 @@ module.exports.login = async (req) => {
   };
 
   const user = await User.findOne(
-    { email, status: STATUS.ACTIVE, role: ROLES.CUSTOMER },
-    userProjection
+    { email: emailLower, role: ROLES.CUSTOMER, status: STATUS.ACTIVE },
+    { ...userProjection, status: 1 },
   ).lean();
 
   if (!user) {
     throwError({
       status: STATUS_CODES.NOT_AUTHORIZED,
       message: t("CUSTOMER_NOT_FOUND", lang),
+    });
+  }
+
+  if (user.status === STATUS.BLOCKED) {
+    throwError({
+      status: STATUS_CODES.NOT_AUTHORIZED,
+      message: t("CUSTOMER_BLOCKED_BY_ADMIN", lang),
     });
   }
 
@@ -130,6 +172,8 @@ module.exports.login = async (req) => {
   }
 
   const token = getJwtToken(user, true);
+  const { KEY_TYPE_PREFIXES } = require("../../../Utils/globalConstants");
+  await redisClient.set(`${KEY_TYPE_PREFIXES.USER_TOKEN}:${user._id}`, "1");
   delete user.password;
   return { user, token };
 };
@@ -172,7 +216,7 @@ module.exports.checkAndProvideCountRTag = async (req) => {
   });
 
   const availableTags = uniqueUsernames.filter(
-    (tag) => !existingTags.includes(tag)
+    (tag) => !existingTags.includes(tag),
   );
 
   return availableTags;
@@ -180,9 +224,8 @@ module.exports.checkAndProvideCountRTag = async (req) => {
 
 module.exports.logoutUser = async (req) => {
   const { userId } = req;
-  const user = await User.findById(userId, { _id: 1 });
   const prefix = KEY_TYPE_PREFIXES.USER_TOKEN;
-  await redisClient.del(`${prefix}:${user._id}`);
+  await redisClient.del(`${prefix}:${userId}`);
 };
 
 module.exports.deleteAccount = async (req) => {
@@ -196,28 +239,38 @@ module.exports.deleteAccount = async (req) => {
     });
   }
 
-  // Generate unique deleted email to avoid conflicts if email has unique constraint
-  const deletedEmail = `deleted_${userId}_${Date.now()}@deleted.local`;
+  // Check for active orders
+  const activeOrder = await Order.findOne({
+    userId,
+    status: {
+      $in: [
+        globalConstants.ORDER_STATUS.PAYMENT_PROCESSING,
+        globalConstants.ORDER_STATUS.WAITING,
+        globalConstants.ORDER_STATUS.IN_PROGRESS,
+        globalConstants.ORDER_STATUS.READY,
+      ],
+    },
+  });
 
-  // Delete all user-related data and clear personal information in parallel for optimization
+  if (activeOrder) {
+    throwError({
+      status: STATUS_CODES.BAD_REQUEST,
+      message: t("CANNOT_DELETE_ACCOUNT_ACTIVE_ORDERS", lang),
+    });
+  }
+
+  // Delete all user-related data and clear session info in parallel
   await Promise.all([
-    // Update user: set status to DELETED, clear all personal information
+    // Update user: set status to DELETED, clear tokens/sessions
     User.updateOne(
       { _id: userId },
       {
         $set: {
           status: STATUS.DELETED,
-          email: deletedEmail,
-          contactNumber: null,
-          countrTag: null,
-          firstName: null,
-          lastName: null,
-          fullName: null,
-          password: null, // Clear password for security
           fcmToken: [],
           socketId: null,
         },
-      }
+      },
     ),
     // Delete all user-related data in parallel (optimized)
     CountRTags.deleteMany({ userId }),
@@ -230,6 +283,8 @@ module.exports.deleteAccount = async (req) => {
     UserFeedback.deleteMany({ userId }),
     UserAppFeedback.deleteMany({ userId }),
     Otp.deleteMany({ userId }),
+    Order.deleteMany({ userId }),
+    StripePayment.deleteMany({ userId }),
     // Clear Redis token if exists
     redisClient.del(`${KEY_TYPE_PREFIXES.USER_TOKEN}:${userId}`),
   ]);
@@ -242,10 +297,11 @@ module.exports.deleteAccount = async (req) => {
 const sendOtpToEmail = async (
   email,
   lang,
-  subject = "Your Verification Code - Countr"
+  subject = "Your Verification Code - countr",
 ) => {
   const redisKey = `${KEY_TYPE_PREFIXES.EMAIL_OTP}${email}`;
   const generatedOtp = crypto.randomInt(100000, 999999).toString();
+  // console.log(`[OTP] Customer/Auth email=${email} otp=${generatedOtp}`); // Logs sensitive data
 
   await redisClient.setEx(redisKey, 120, generatedOtp);
 
@@ -369,13 +425,7 @@ module.exports.resetPassword = async (req) => {
 
   // Verify reset token
   const storedToken = await redisClient.get(resetTokenKey);
-  console.log("Reset Password Debug:", {
-    resetTokenKey,
-    storedTokenExists: !!storedToken,
-    receivedToken: resetToken?.substring(0, 10) + "...",
-    storedToken: storedToken?.substring(0, 10) + "...",
-    tokensMatch: storedToken === resetToken,
-  });
+  // console.log("Reset Password Debug:", {...}); // Logs sensitive token data
   if (!storedToken || storedToken !== resetToken) {
     throwError({
       status: STATUS_CODES.BAD_REQUEST,

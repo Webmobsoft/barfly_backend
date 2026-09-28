@@ -1,6 +1,7 @@
 const PDFDocument = require("pdfkit");
+const mongoose = require("mongoose");
 
-const { ORDER_STATUS, STATUS_CODES } = require("../Utils/globalConstants");
+const { ORDER_STATUS } = require("../Utils/globalConstants");
 const Order = require("../Models/Order");
 const Counter = require("../Models/Counter");
 const EntityDetails = require("../Models/EntityDetails");
@@ -9,6 +10,14 @@ const {
   generatePresignedUrl,
 } = require("../Controller/aws-service");
 const SalesReport = require("../Models/SalesReport");
+const ItemDetails = require("../Models/ItemDetails");
+const {
+  formatDateDDMMYYYY,
+  formatCalendarDDMMYYYY,
+  getZonedDateRange,
+  registerFonts,
+  createPdfHelpers,
+} = require("./pdfUtils");
 
 module.exports.ownerTrades = async (req) => {
   const {
@@ -17,24 +26,47 @@ module.exports.ownerTrades = async (req) => {
     query: { fromDate, toDate },
   } = req;
 
-  const start = new Date(fromDate);
-  start.setHours(0, 0, 0, 0);
+  // Client timezone (IANA) sent via header; used both to render report dates in
+  // the owner's local time and to anchor the query window to the owner's
+  // calendar days. Validated downstream (falls back to RECEIPT_TIMEZONE).
+  const timeZone = req.headers?.["timezone"];
 
-  const end = new Date(toDate);
-  end.setHours(23, 59, 59, 999);
+  // Build the UTC query window as midnight-to-midnight of the selected calendar
+  // days IN the client's timezone (not the server's). Accepts ISO "yyyy-MM-dd"
+  // or legacy "dd MMM, yyyy"; falls back to server-local boundaries if a date
+  // can't be parsed, so it stays backward compatible during rollout.
+  const { start, end } = getZonedDateRange(fromDate, toDate, timeZone);
+  const safeIso = (d) => (d && !isNaN(d.getTime()) ? d.toISOString() : "Invalid Date");
+  console.log("[ownerTrades] query window", {
+    fromDate,
+    toDate,
+    timeZone,
+    startUTC: safeIso(start),
+    endUTC: safeIso(end),
+  });
 
   const payload = { status: ORDER_STATUS.COMPLETED };
-  const doc = new PDFDocument({ size: [595, 842] });
+  const doc = new PDFDocument({
+    size: [595, 842],
+    margins: { top: 72, bottom: 0, left: 72, right: 72 },
+  });
   const buffers = [];
 
   doc.on("data", (chunk) => buffers.push(chunk));
+
+  let entityNameForFile = "";
 
   const finished = new Promise((resolve, reject) => {
     doc.on("end", async () => {
       try {
         const pdfBuffer = Buffer.concat(buffers);
         const timestamp = Date.now();
-        const fileKey = `reports/${userId}/owner_trades_${timestamp}.pdf`;
+        const safeName = (entityNameForFile || "entity")
+          .replace(/[^a-zA-Z0-9]/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_|_$/g, "");
+        const filename = `Entity_${safeName}_${timestamp}.pdf`;
+        const fileKey = `reports/${userId}/${filename}`;
 
         const s3Upload = await uploadBufferToS3(pdfBuffer, fileKey);
         const signedUrl = await generatePresignedUrl(fileKey);
@@ -44,7 +76,7 @@ module.exports.ownerTrades = async (req) => {
           entityId,
           fromDate,
           toDate,
-          filename: `owner_trades_${timestamp}.pdf`,
+          filename,
           filePath: s3Upload.Location,
         });
 
@@ -58,63 +90,67 @@ module.exports.ownerTrades = async (req) => {
     doc.on("error", reject);
   });
 
-  doc.registerFont(
-    "Helveticaneue-Light",
-    "Assets/fonts/HelveticaNeueLight.otf"
-  );
-  doc.registerFont(
-    "Helveticaneue-Medium",
-    "Assets/fonts/HelveticaNeueMedium.otf"
-  );
-  doc.registerFont(
-    "Helveticaneue-Regular",
-    "Assets/fonts/HelveticaNeue Regular.ttf"
-  );
+  registerFonts(doc);
 
   const logoPath = "Assets/countr_logo.png";
-  const pageWidth = doc.page.width;
-  const leftMargin = 25;
-  const rightMargin = 20;
-  const topMargin = 30;
+  const {
+    pageWidth,
+    leftMargin,
+    rightMargin,
+    checkPageBreak,
+    drawHeader,
+    drawFooter,
+  } = createPdfHelpers(doc);
 
-  doc.image(logoPath, leftMargin, topMargin, { width: 250, height: 70 });
+  let pageNum = 1;
+  let isInPageAdded = false;
 
-  doc
-    .fontSize(12)
-    .font("Helvetica-Bold")
-    .text(
-      "countr app",
-      pageWidth - leftMargin - rightMargin - 130,
-      topMargin + 25
-    )
-    .fontSize(11)
-    .font("Helveticaneue-Light")
-    .text("www.countr-app.ch", pageWidth - leftMargin - rightMargin - 130)
-    .text("info@countr-app.ch", pageWidth - leftMargin - rightMargin - 130);
+  doc.on("pageAdded", () => {
+    if (isInPageAdded) return;
+    isInPageAdded = true;
+    pageNum++;
+    drawHeader(logoPath);
+    drawFooter(pageNum, "Order Documentation");
+    isInPageAdded = false;
+  });
+
+  // Page 1
+  drawHeader(logoPath);
+  drawFooter(pageNum, "Order Documentation");
 
   const user = await EntityDetails.findOne({ userId }).populate({
     path: "userId",
     select: "fullName",
     model: "User",
   });
+  entityNameForFile = user?.entityName || "";
 
   doc
     .fontSize(12)
     .font("Helvetica-Bold")
-    .text(user.entityName || "[Restaurant Name]", leftMargin + 12, doc.y + 50)
+    .text(user?.entityName || "[Restaurant Name]", leftMargin + 12, doc.y + 50)
     .font("Helveticaneue-Light")
-    .text(user.userId.fullName || "[Account Owner Name]")
-    .text(`${user.zipcode || "ZIP"} ${user.city || "City"}`);
+    .text(
+      `Wallee Account: ${user?.walleeSpaceId || "-"}`,
+      pageWidth - rightMargin - 200,
+      doc.y - 15
+    )
+    .text(user?.userId?.fullName || "[Account Owner Name]", leftMargin + 12)
+    .text(`${user?.location || "[Street]"} ${user?.buildingName || ""}`.trim())
+    .text(`${user?.zipcode || "ZIP"} ${user?.city || "City"}`);
 
   doc
     .fontSize(20)
     .font("Helveticaneue-Light")
     .text("Order Documentation", leftMargin + 12, doc.y + 30)
     .fontSize(12)
-    .text(`${fromDate} - ${toDate}`, leftMargin + 15)
+    .text(
+      `${formatCalendarDDMMYYYY(fromDate)} - ${formatCalendarDDMMYYYY(toDate)}`,
+      leftMargin + 15
+    )
     .text("Report Exported:", leftMargin + 310, doc.y - 19.5)
     .text(
-      new Date().toLocaleDateString(),
+      formatDateDDMMYYYY(new Date(), timeZone),
       pageWidth - leftMargin - rightMargin - 125,
       doc.y - 11
     );
@@ -170,6 +206,7 @@ module.exports.ownerTrades = async (req) => {
     );
     const avgPerWeek = (totalOrders / weeks).toFixed(1);
 
+    checkPageBreak(40);
     doc
       .fontSize(12)
       .font("Helveticaneue-Light")
@@ -187,8 +224,123 @@ module.exports.ownerTrades = async (req) => {
       );
   }
 
+  // ── Counter summary line ────────────────────────────────────────────
+  const totalCounterOrders = orders.length;
+  const totalCounterAmount = orders.reduce((sum, o) => {
+    const amount = o.totalAmount;
+    return typeof amount === "number" && !isNaN(amount) ? sum + amount : sum;
+  }, 0);
+  const amountPerOrder =
+    totalCounterOrders > 0 ? totalCounterAmount / totalCounterOrders : 0;
+
+  checkPageBreak(30);
+  doc
+    .fontSize(12)
+    .font("Helvetica-Bold")
+    .text(
+      `${amountPerOrder.toFixed(2)}`,
+      pageWidth - leftMargin - rightMargin - 130,
+      doc.y + 20
+    );
+
+  // ── Item-wise analysis ───────────────────────────────────────────────
+  const allItemIds = new Set();
+  for (const order of orders) {
+    for (const orderItem of order.items || []) {
+      const id = orderItem.itemId?.toString();
+      if (id) allItemIds.add(id);
+    }
+  }
+
+  const itemDetailsMap = {};
+  if (allItemIds.size > 0) {
+    const objectIds = [...allItemIds].map(
+      (id) => new mongoose.Types.ObjectId(id)
+    );
+    const itemDocs = await ItemDetails.find(
+      { _id: { $in: objectIds } },
+      "itemName price"
+    ).lean();
+    for (const d of itemDocs) {
+      itemDetailsMap[d._id.toString()] = d;
+    }
+  }
+
+  const itemMap = {};
+  for (const order of orders) {
+    for (const orderItem of order.items || []) {
+      const itemId = orderItem.itemId?.toString();
+      if (!itemId) continue;
+      const liveDoc = itemDetailsMap[itemId];
+      const itemName = liveDoc?.itemName || orderItem.itemName;
+      const itemPrice = liveDoc?.price ?? orderItem.itemPrice ?? 0;
+      if (!itemMap[itemId]) {
+        itemMap[itemId] = {
+          quantity: 0,
+          totalAmount: 0,
+          itemName,
+          itemPrice,
+          lastOrderedAt: order.createdAt,
+        };
+      }
+      itemMap[itemId].quantity += orderItem.quantity || 1;
+      itemMap[itemId].totalAmount =
+        itemMap[itemId].itemPrice * itemMap[itemId].quantity;
+      if (order.createdAt > itemMap[itemId].lastOrderedAt) {
+        itemMap[itemId].lastOrderedAt = order.createdAt;
+      }
+    }
+  }
+
+  if (Object.keys(itemMap).length > 0) {
+    checkPageBreak(80);
+    // Divider
+    doc
+      .moveTo(leftMargin + 12, doc.y + 30)
+      .lineTo(pageWidth - rightMargin - 40, doc.y + 30)
+      .lineWidth(1)
+      .strokeColor("#000000")
+      .stroke();
+
+    // Table headers
+    doc
+      .fontSize(12)
+      .font("Helvetica-Bold")
+      .text("Item name", leftMargin + 12, doc.y + 50)
+      .text("Item price", leftMargin + 200, doc.y - 15)
+      .text("Orders", leftMargin + 320, doc.y - 15)
+      .text(
+        "Total Amount\n[CHF]",
+        pageWidth - leftMargin - rightMargin - 130,
+        doc.y - 28
+      );
+
+    // Table rows — sorted by most recently ordered first
+    const sortedItems = Object.values(itemMap).sort(
+      (a, b) => new Date(b.lastOrderedAt) - new Date(a.lastOrderedAt)
+    );
+    for (const entry of sortedItems) {
+      checkPageBreak(35);
+      doc
+        .fontSize(12)
+        .font("Helveticaneue-Light")
+        .text(entry.itemName || "[Item]", leftMargin + 12, doc.y + 20)
+        .text(
+          `${(entry.itemPrice || 0).toFixed(2)}`,
+          leftMargin + 200,
+          doc.y - 15
+        )
+        .text(entry.quantity.toString(), leftMargin + 330, doc.y - 12)
+        .text(
+          entry.totalAmount.toFixed(2),
+          pageWidth - leftMargin - rightMargin - 130,
+          doc.y - 14
+        );
+    }
+  }
+
   doc.fillColor("#000000");
-  doc.end(); // triggers the 'end' event
+  doc.end();
 
   return await finished;
 };

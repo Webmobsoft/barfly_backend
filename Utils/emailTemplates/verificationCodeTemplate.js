@@ -11,7 +11,7 @@ const getVerificationCodeTemplate = (code, validFor = "2 minutes") => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verification Code - Countr</title>
+    <title>Verification Code - countr</title>
     <style>
         * {
             margin: 0;
@@ -42,7 +42,8 @@ const getVerificationCodeTemplate = (code, validFor = "2 minutes") => {
             font-weight: 500;
         }
         .code-container {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            background-color: #e8edf6; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             border-radius: 12px;
             padding: 30px;
             margin: 30px 0;
@@ -149,7 +150,7 @@ const getVerificationCodeTemplate = (code, validFor = "2 minutes") => {
             </div>
             
             <div class="warning">
-                <p><strong>⚠️ Security Notice:</strong> Never share this code with anyone. Countr staff will never ask for your verification code.</p>
+                <p><strong>⚠️ Security Notice:</strong> Never share this code with anyone. countr staff will never ask for your verification code.</p>
             </div>
             
             <div class="divider"></div>
@@ -160,11 +161,8 @@ const getVerificationCodeTemplate = (code, validFor = "2 minutes") => {
         </div>
         
         <div class="email-footer">
-            <p><strong>Countr</strong></p>
+            <p><strong>countr</strong></p>
             <p>Thank you for using our service!</p>
-            <p style="margin-top: 15px;">
-                <a href="mailto:support@countr-plus.ch">Contact Support</a>
-            </p>
         </div>
     </div>
 </body>

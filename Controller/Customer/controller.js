@@ -39,6 +39,7 @@ const {
   userAppFeedback,
   getFeedbackAppQuestions,
   getUserAppFeedbackAnswers,
+  getPlatformFee,
 } = require("./service");
 const { t, getLanguageFromRequest } = require("../../Utils/translator");
 
@@ -73,7 +74,7 @@ router.post("/update-notification-settings", async (req, res) => {
 
 router.get("/get-entities", async (req, res) => {
   const lang = getLanguageFromRequest(req);
-  console.log(lang, "lang");
+  // console.log(lang, "lang"); // Debug log
   try {
     const response = await getEntities(req);
     return res.status(STATUS_CODES.OK).json({
@@ -610,6 +611,21 @@ router.get("/get-user-app-feedback-answers", async (req, res) => {
     console.error("Error occured while getting user feedback answers: ", error);
     return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
       message: error.message || t("USER_FEEDBACK_FETCH_ERROR", lang),
+    });
+  }
+});
+
+router.get("/get-platform-fee", async (req, res) => {
+  const lang = getLanguageFromRequest(req);
+  try {
+    const response = await getPlatformFee(req);
+    return res.status(STATUS_CODES.OK).json({
+      message: t("PLATFORM_FEE_FETCH_SUCCESS", lang),
+      platformFee: response.platformFee,
+    });
+  } catch (error) {
+    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
+      message: error.message || t("PLATFORM_FEE_FETCH_ERROR", lang),
     });
   }
 });
