@@ -7,6 +7,7 @@ const {
   ApplicationUsersService,
   AccountsService,
   AccountScope,
+  PaymentMethodConfigurationsService,
 } = require("wallee");
 
 const wallee = require("wallee");
@@ -42,6 +43,8 @@ const webhookEncryptionService = new WebhookEncryptionKeysService(config);
 const spacesService = new SpacesService(config);
 const applicationUsersService = new ApplicationUsersService(config);
 const accountsService = new AccountsService(config);
+const paymentMethodConfigurationsService =
+  new PaymentMethodConfigurationsService(config);
 
 // Helper function to parse error response
 const parseWalleeError = async (error) => {
@@ -178,12 +181,33 @@ const createWalleeTransaction = async (req) => {
     // Note: Platform fee is NOT deducted from payment
     // It will be tracked in database and collected later via invoice/auto-debit
 
+    // Resolve a Wallee locale for the transaction. The request language is a short
+    // code (e.g. "en"/"de"); Wallee expects a full locale. An unset language can
+    // break the native SDK sheet rendering, so always set it explicitly.
+    const localeMap = { de: "de-CH", en: "en-US" };
+    const transactionLanguage = localeMap[lang] || "en-US";
+
+    // Optional: restrict the payment methods offered in the SDK sheet. Set
+    // WALLEE_ALLOWED_PAYMENT_METHOD_CONFIGS to a comma-separated list of Wallee
+    // payment method configuration IDs (space-specific) to limit the sheet to
+    // those methods only. Leave unset to offer all configured methods.
+    const allowedPaymentMethodConfigurations = (
+      process.env.WALLEE_ALLOWED_PAYMENT_METHOD_CONFIGS || ""
+    )
+      .split(",")
+      .map((id) => Number(id.trim()))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
     // Create transaction object
     const transactionCreate = {
       lineItems: lineItems,
       autoConfirmationEnabled: true,
       currency: currency.toUpperCase(),
+      language: transactionLanguage,
       customerEmailAddress: customerEmail || undefined,
+      ...(allowedPaymentMethodConfigurations.length > 0 && {
+        allowedPaymentMethodConfigurations,
+      }),
       metaData: {
         userId: reqUserId,
         eventId: eventId,
@@ -214,11 +238,39 @@ const createWalleeTransaction = async (req) => {
         id: transaction.id,
       });
 
+    // Generate the short-lived credentials token for the native Wallee Mobile SDK.
+    // Same transaction + same merchant space used for creation. This is additive:
+    // if it fails, the app falls back to the WebView via paymentPageUrl, so we do
+    // not fail the request (the transaction is already created).
+    let mobileSdkToken = "";
+    try {
+      mobileSdkToken =
+        await transactionsService.getPaymentTransactionsIdCredentials({
+          space: merchantSpaceIdNumber, // Use validated number
+          id: transaction.id,
+        });
+      // Never log the token value itself — only confirm it is a non-empty string.
+      console.log(
+        `Wallee mobile SDK token generated for transaction ${transaction.id}: ${
+          typeof mobileSdkToken === "string" && mobileSdkToken.length > 0
+            ? "ok"
+            : "empty"
+        }`
+      );
+    } catch (credError) {
+      mobileSdkToken = "";
+      console.error(
+        `Failed to generate Wallee mobile SDK token for transaction ${transaction.id}; app will fall back to WebView:`,
+        credError?.message || credError
+      );
+    }
+
     return {
       type: "payment_page",
       url: paymentPageUrl,
       transactionId: transaction.id,
       state: transaction.state,
+      mobileSdkToken,
     };
   } catch (error) {
     const errorDetails = await parseWalleeError(error);
@@ -618,6 +670,7 @@ const handleWalleeWebhook = async (req) => {
               sendFirebaseNotification({
                 topic: `owner_entity_${entityIdStr}`,
                 showNotification: true,
+                alertSound: true,
                 title: "Order received",
                 body: "You have a new order. Tap to view.",
                 data: {
@@ -1392,6 +1445,70 @@ const getWalleeSpace = async (req) => {
   }
 };
 
+/**
+ * List the payment method configurations for a merchant space. Diagnostic helper
+ * to discover the numeric configuration IDs used by
+ * WALLEE_ALLOWED_PAYMENT_METHOD_CONFIGS (to restrict the SDK payment sheet).
+ *
+ * Space resolution (in priority order):
+ *   1) req.query.eventId  -> event.entityId.walleeSpaceId (same chain as create-payment)
+ *   2) req.query.spaceId  -> used directly
+ */
+const getWalleePaymentMethodConfigurations = async (req) => {
+  const lang = getLanguageFromRequest(req);
+  try {
+    const { eventId, spaceId } = req.query;
+
+    let resolvedSpaceId;
+    if (eventId) {
+      const event = await Event.findById(eventId).populate({
+        path: "entityId",
+        select: "walleeSpaceId",
+      });
+      resolvedSpaceId = event?.entityId?.walleeSpaceId;
+    } else if (spaceId) {
+      resolvedSpaceId = spaceId;
+    }
+
+    const spaceIdNumber = Number(resolvedSpaceId);
+    if (isNaN(spaceIdNumber) || spaceIdNumber <= 0) {
+      throwError({
+        status: STATUS_CODES.BAD_REQUEST,
+        message: t("WALLEE_INVALID_SPACE_ID", lang),
+      });
+    }
+
+    const response =
+      await paymentMethodConfigurationsService.getPaymentMethodConfigurations({
+        space: spaceIdNumber,
+      });
+
+    const configurations = (response?.data || []).map((config) => ({
+      id: config.id,
+      name: config.name,
+      state: config.state,
+    }));
+
+    return {
+      spaceId: spaceIdNumber,
+      // Only ACTIVE configs are offered in the payment sheet; those are the ones
+      // worth putting in WALLEE_ALLOWED_PAYMENT_METHOD_CONFIGS.
+      activeConfigurationIds: configurations
+        .filter((c) => c.state === "ACTIVE")
+        .map((c) => c.id),
+      configurations,
+    };
+  } catch (err) {
+    const errorDetails = await parseWalleeError(err);
+    return {
+      error:
+        errorDetails?.message ||
+        err.message ||
+        t("WALLEE_SPACE_FETCH_ERROR", lang),
+    };
+  }
+};
+
 module.exports = {
   createWalleeTransaction,
   getWalleeTransactionStatus,
@@ -1400,4 +1517,5 @@ module.exports = {
   continueWalleeOnboarding,
   checkWalleeAccountStatus,
   getWalleeSpace,
+  getWalleePaymentMethodConfigurations,
 };

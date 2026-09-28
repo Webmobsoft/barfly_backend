@@ -9,6 +9,7 @@ const {
   continueWalleeOnboarding,
   checkWalleeAccountStatus,
   getWalleeSpace,
+  getWalleePaymentMethodConfigurations,
 } = require("../CustomerServices/walleeServices");
 const { STATUS_CODES } = require("../Utils/globalConstants");
 const { t, getLanguageFromRequest } = require("../Utils/translator");
@@ -41,6 +42,9 @@ router.post("/create-payment", async (req, res) => {
     return res.status(STATUS_CODES.OK).json({
       paymentPageUrl: result.url, // Frontend expects 'paymentPageUrl' not 'url'
       transactionId: result.transactionId,
+      // Native Wallee Mobile SDK token; app uses it when present, else falls back
+      // to paymentPageUrl (legacy WebView)
+      mobileSdkToken: result.mobileSdkToken,
       // Include additional fields for backward compatibility
       type: result.type,
       state: result.state,
@@ -115,6 +119,28 @@ router.get("/get-payment-status", async (req, res) => {
     console.error("Error while getting Wallee payment status:", error);
     res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
       message: error.message || t("WALLEE_PAYMENT_STATUS_ERROR", lang),
+    });
+  }
+});
+
+/**
+ * Diagnostic: list payment method configuration IDs for a merchant space.
+ * GET /api/wallee/payment-method-configurations?eventId={id}   (or ?spaceId={id})
+ * Use the returned activeConfigurationIds to populate
+ * WALLEE_ALLOWED_PAYMENT_METHOD_CONFIGS.
+ */
+router.get("/payment-method-configurations", async (req, res) => {
+  const lang = getLanguageFromRequest(req);
+  try {
+    const result = await getWalleePaymentMethodConfigurations(req);
+    if (result.error) {
+      return res.status(STATUS_CODES.BAD_REQUEST).json({ message: result.error });
+    }
+    return res.status(STATUS_CODES.OK).json(result);
+  } catch (error) {
+    console.error("Error while listing Wallee payment method configs:", error);
+    res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
+      message: error.message || t("WALLEE_SPACE_FETCH_ERROR", lang),
     });
   }
 });

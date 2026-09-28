@@ -83,7 +83,7 @@ module.exports.register = async (req) => {
 
   if (!enteredOtp && contactNumber) {
     const otp = crypto.randomInt(100000, 999999).toString();
-    console.log(`[OTP] Owner/Auth contactNumber=${contactNumber} otp=${otp}`);
+    // console.log(`[OTP] Owner/Auth contactNumber=${contactNumber} otp=${otp}`); // Logs sensitive data
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     otpRecord = await Otp.findOneAndUpdate(
@@ -121,7 +121,7 @@ module.exports.register = async (req) => {
     //   });
     // }
 
-    if (enteredOtp == 999999 || enteredOtp == otpRecord.otp) {
+    if (enteredOtp == otpRecord.otp) {
       await Otp.deleteOne({ contactNumber });
       const newSessionId = crypto.randomUUID();
 

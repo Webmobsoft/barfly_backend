@@ -262,6 +262,7 @@ const createOfflineOrder = async (req) => {
   sendFirebaseNotification({
     topic: `owner_entity_${entityId}`,
     showNotification: true,
+    alertSound: true,
     title: "New Offline Order",
     body: "A new offline order has been placed.",
     data: {
@@ -292,6 +293,7 @@ const createOfflineOrder = async (req) => {
     sendFirebaseNotification({
       topic: `user_${customerId}`,
       showNotification: true,
+      alertSound: true,
       title: "New Offline Order",
       body: orderRef
         ? `Offline order ${orderRef} has been placed on your account.`
@@ -392,6 +394,7 @@ const updateStatusOfOrder = async (req) => {
   sendFirebaseNotification({
     topic: `user_${userId}`,
     showNotification: true,
+    alertSound: true,
     title: "Order Status Updated",
     body: `Order No: ${orderNo} is ${status}!`,
     data: {
@@ -834,6 +837,7 @@ const updateOfflineOrders = async (req) => {
     sendFirebaseNotification({
       topic: `user_${customerId}`,
       showNotification: true,
+      alertSound: true,
       title: "Offline Order Status Updated",
       body: orderRef
         ? `Order ${orderRef} status is ${status}`
@@ -1393,6 +1397,7 @@ const cancelOrder = async (req) => {
     sendFirebaseNotification({
       topic: `owner_entity_${order.entityId._id}`,
       showNotification: true,
+      alertSound: true,
       title: "Order Cancelled",
       body: `A customer has cancelled order #${order.tokenNumber || order._id}.`,
       data: {

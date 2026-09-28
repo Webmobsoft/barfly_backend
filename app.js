@@ -20,10 +20,10 @@ app.use(cors());
 const { handleWalleeWebhook } = require("./CustomerServices/walleeServices");
 
 // Log ALL requests to /api/wallee/webhook for debugging
-app.use("/api/wallee/webhook", (req, res, next) => {
-  console.log("📥 Webhook request received at:", new Date().toISOString());
-  next();
-});
+// app.use("/api/wallee/webhook", (req, res, next) => {
+//   console.log("📥 Webhook request received at:", new Date().toISOString());
+//   next();
+// });
 
 // Wallee webhook endpoint - must use express.raw() to preserve raw body for signature verification
 app.post(
@@ -227,7 +227,7 @@ app.use((req, res, next) => {
   ) {
     return next();
   }
-  console.log({ req: req.path });
+  // console.log({ req: req.path }); // Noisy: logs every authenticated request
 
   return verifyToken(req, res, next);
 });
@@ -264,7 +264,7 @@ app.post("/api/update-menu-items", async (req, res) => {
     );
     return res.status(200).json(getMenuitems);
   } catch (error) {
-    console.log("error occured in update-menu");
+    console.log("error occured in update-menu",error);
     return res.status(500).json({ error });
   }
 });
@@ -307,9 +307,9 @@ app.get("/api/download-file", async (req, res) => {
 app.post("/update-entity-items", async (req, res) => {
   const lang = getLanguageFromRequest(req);
   try {
-    console.log({ ee: req.entityId });
+    // console.log({ ee: req.entityId });
     const itemsId = await ItemDetails.find({ entityId: req.entityId }).lean();
-    console.log({ itemsId });
+    // console.log({ itemsId });
     const itemIds = itemsId.map((item) => item.itemId);
     await MenuItem.updateMany(
       { _id: { $in: itemIds } },

@@ -301,7 +301,7 @@ const sendOtpToEmail = async (
 ) => {
   const redisKey = `${KEY_TYPE_PREFIXES.EMAIL_OTP}${email}`;
   const generatedOtp = crypto.randomInt(100000, 999999).toString();
-  console.log(`[OTP] Customer/Auth email=${email} otp=${generatedOtp}`);
+  // console.log(`[OTP] Customer/Auth email=${email} otp=${generatedOtp}`); // Logs sensitive data
 
   await redisClient.setEx(redisKey, 120, generatedOtp);
 
@@ -425,13 +425,7 @@ module.exports.resetPassword = async (req) => {
 
   // Verify reset token
   const storedToken = await redisClient.get(resetTokenKey);
-  console.log("Reset Password Debug:", {
-    resetTokenKey,
-    storedTokenExists: !!storedToken,
-    receivedToken: resetToken?.substring(0, 10) + "...",
-    storedToken: storedToken?.substring(0, 10) + "...",
-    tokensMatch: storedToken === resetToken,
-  });
+  // console.log("Reset Password Debug:", {...}); // Logs sensitive token data
   if (!storedToken || storedToken !== resetToken) {
     throwError({
       status: STATUS_CODES.BAD_REQUEST,
