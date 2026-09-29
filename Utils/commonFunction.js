@@ -309,6 +309,7 @@ const sendFirebaseNotification = async ({
   data = {},
   topic = "",
   showNotification = true,
+  alertSound = false,
 }) => {
   try {
     if (!topic) {
@@ -371,6 +372,18 @@ const sendFirebaseNotification = async ({
           },
       topic: topic,
     };
+
+    // User-facing alerts (order status / cancelled / offline order) must play a
+    // sound and vibrate. Silent data refreshes must never pass alertSound.
+    if (alertSound && showNotification) {
+      Object.assign(payload.android.notification, {
+        channelId: "order_updates_alert",
+        sound: "default",
+        defaultVibrateTimings: true,
+      });
+      payload.apns.headers["apns-push-type"] = "alert";
+      payload.apns.payload.aps.sound = "default";
+    }
 
     await messagingPlus.send(payload);
     await messaging.send(payload);
