@@ -375,14 +375,17 @@ const sendFirebaseNotification = async ({
 
     // User-facing alerts (order status / cancelled / offline order) must play a
     // sound and vibrate. Silent data refreshes must never pass alertSound.
+    // "order_alert" is the "ding" bundled in both the Customer and Countr Plus apps
+    // (Android res/raw/order_alert.wav, iOS order_alert.caf). App builds without the
+    // file fall back to the default sound.
     if (alertSound && showNotification) {
       Object.assign(payload.android.notification, {
-        channelId: "order_updates_alert",
-        sound: "default",
+        channelId: "order_alert_chime",
+        sound: "order_alert",
         defaultVibrateTimings: true,
       });
       payload.apns.headers["apns-push-type"] = "alert";
-      payload.apns.payload.aps.sound = "default";
+      payload.apns.payload.aps.sound = "order_alert.caf";
     }
 
     await messagingPlus.send(payload);
