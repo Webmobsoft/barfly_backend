@@ -52,6 +52,10 @@ const orderSchme = new Schema(
     platformFees: { type: Number },
     paymentMethod: { type: String },
     walleeTransactionId: { type: Number },
+    // IANA timezone sent by the client at order time (e.g. "Europe/Zurich"),
+    // used to render the receipt PDF in the right local time. Optional —
+    // falls back to RECEIPT_TIMEZONE when absent/invalid.
+    timezone: { type: String },
   },
   { timestamps: true, minimize: false }
 );

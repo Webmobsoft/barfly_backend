@@ -73,10 +73,17 @@ module.exports.register = async (req) => {
 
   let message = "";
 
-  let otpRecord = await Otp.findOne({ contactNumber });
+  // Only look up an OTP record when we actually have a contactNumber to match
+  // on. Without this guard, Mongoose strips the undefined and findOne returns
+  // an arbitrary (usually expired) Otp doc, which sends us down the wrong
+  // branch on the final register call.
+  let otpRecord = contactNumber
+    ? await Otp.findOne({ contactNumber })
+    : null;
 
   if (!enteredOtp && contactNumber) {
     const otp = crypto.randomInt(100000, 999999).toString();
+    // console.log(`[OTP] Owner/Auth contactNumber=${contactNumber} otp=${otp}`); // Logs sensitive data
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     otpRecord = await Otp.findOneAndUpdate(
@@ -85,7 +92,7 @@ module.exports.register = async (req) => {
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
 
-    const msg = `Use this code to verify your Countr account: ${otp}. It is valid for 5 minutes.`;
+    const msg = `Use this code to verify your countr account: ${otp}. It is valid for 5 minutes.`;
 
     const smsMessage = t("OTP_SMS_MESSAGE", lang, { otp });
 
@@ -114,7 +121,7 @@ module.exports.register = async (req) => {
     //   });
     // }
 
-    if (enteredOtp == 999999 || enteredOtp == otpRecord.otp) {
+    if (enteredOtp == otpRecord.otp) {
       await Otp.deleteOne({ contactNumber });
       const newSessionId = crypto.randomUUID();
 
@@ -126,6 +133,23 @@ module.exports.register = async (req) => {
         sessionId: newSessionId,
       };
     }
+  }
+
+  // Reached the "create the account" branch — sessionId is required and the
+  // entity payload must be present, otherwise we'd silently create a half-set
+  // entity. Surface a 400 instead of a confusing 500 from downstream Mongoose
+  // validation.
+  if (!sessionId) {
+    throwError({
+      status: STATUS_CODES.BAD_REQUEST,
+      message: t("OTP_SESSION_INVALID", lang),
+    });
+  }
+  if (!entityName || !entityType) {
+    throwError({
+      status: STATUS_CODES.BAD_REQUEST,
+      message: t("OWNER_REGISTER_FIELDS_MISSING", lang),
+    });
   }
 
   const sessionData = await OtpSession.findOne({ sessionId });
@@ -148,8 +172,8 @@ module.exports.register = async (req) => {
     newUser.password = hashPassword(password);
   }
 
-  const userDetails = await User.create(newUser);
-
+  // Upload the logo first so a slow/failing S3 doesn't leave us with an
+  // orphaned User row that blocks all future registration retries.
   let fileName = "";
   if (file) {
     fileName = `${Date.now()}_${file.originalname.replace(/ /g, "_")}`;
@@ -170,24 +194,37 @@ module.exports.register = async (req) => {
     }
   }
 
-  const entityDetails = await EntityDetails.create({
-    city,
-    zipcode,
-    entityName,
-    entityType,
-    owner: userDetails._id,
-    image: fileName.replace(" ", "_"),
-    entityContactNumber,
-    // plotNo,
-    floor,
-    country,
-    buildingName,
-    landMark: landmark,
-    userId: userDetails._id,
-    status: STATUS.ACTIVE,
-    state,
-    location,
-  });
+  const userDetails = await User.create(newUser);
+
+  let entityDetails;
+  try {
+    entityDetails = await EntityDetails.create({
+      city,
+      zipcode,
+      entityName,
+      entityType,
+      owner: userDetails._id,
+      image: fileName.replace(" ", "_"),
+      entityContactNumber,
+      // plotNo,
+      floor,
+      country,
+      buildingName,
+      landMark: landmark,
+      userId: userDetails._id,
+      status: STATUS.ACTIVE,
+      state,
+      location,
+    });
+  } catch (err) {
+    // Roll the user back so the next attempt isn't blocked by
+    // "OWNER_ALREADY_REGISTERED" against an orphan record.
+    await User.deleteOne({ _id: userDetails._id }).catch(() => {});
+    throwError({
+      status: STATUS_CODES.BAD_REQUEST,
+      message: err.message || t("OWNER_REGISTER_ERROR", lang),
+    });
+  }
 
   await NotificationSettings.create({
     userId: userDetails._id,
@@ -216,10 +253,10 @@ module.exports.register = async (req) => {
   // Send welcome email to owner (non-blocking)
   try {
     if (email) {
-      const welcomeHtml = getOwnerWelcomeTemplate(fullName || "Owner");
+      const welcomeHtml = getOwnerWelcomeTemplate(fullName || "", lang);
       createMail({
         to: email,
-        subject: "Welcome to Countr! 🎉",
+        subject: `${t("EMAIL_WELCOME_OWNER_SUBJECT", lang)} 🎉`,
         html: welcomeHtml,
       });
     }
@@ -277,7 +314,7 @@ module.exports.login = async (req) => {
   const lang = getLanguageFromRequest(req);
   const { email, contactNumber, password } = req.body;
 
-  const query = { role: ROLES.STORE_OWNER };
+  const query = { role: ROLES.STORE_OWNER, status: STATUS.ACTIVE };
   if (email) query.email = email;
   if (contactNumber) query.contactNumber = contactNumber;
   if (!Object.keys(query)) {
@@ -362,10 +399,11 @@ module.exports.logoutEntity = async (req) => {
 const sendOtpToEmail = async (
   email,
   lang,
-  subject = "Your Verification Code - Countr",
+  subject = "Your Verification Code - countr",
 ) => {
   const redisKey = `${KEY_TYPE_PREFIXES.EMAIL_OTP}${email}`;
   const generatedOtp = crypto.randomInt(100000, 999999).toString();
+  console.log(`[OTP] Owner/AuthEmail email=${email} otp=${generatedOtp}`);
 
   // Store OTP in Redis with 2 minutes TTL (120 seconds)
   await redisClient.setEx(redisKey, 120, generatedOtp);

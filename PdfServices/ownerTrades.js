@@ -13,6 +13,8 @@ const SalesReport = require("../Models/SalesReport");
 const ItemDetails = require("../Models/ItemDetails");
 const {
   formatDateDDMMYYYY,
+  formatCalendarDDMMYYYY,
+  getZonedDateRange,
   registerFonts,
   createPdfHelpers,
 } = require("./pdfUtils");
@@ -24,11 +26,24 @@ module.exports.ownerTrades = async (req) => {
     query: { fromDate, toDate },
   } = req;
 
-  const start = new Date(fromDate);
-  start.setHours(0, 0, 0, 0);
+  // Client timezone (IANA) sent via header; used both to render report dates in
+  // the owner's local time and to anchor the query window to the owner's
+  // calendar days. Validated downstream (falls back to RECEIPT_TIMEZONE).
+  const timeZone = req.headers?.["timezone"];
 
-  const end = new Date(toDate);
-  end.setHours(23, 59, 59, 999);
+  // Build the UTC query window as midnight-to-midnight of the selected calendar
+  // days IN the client's timezone (not the server's). Accepts ISO "yyyy-MM-dd"
+  // or legacy "dd MMM, yyyy"; falls back to server-local boundaries if a date
+  // can't be parsed, so it stays backward compatible during rollout.
+  const { start, end } = getZonedDateRange(fromDate, toDate, timeZone);
+  const safeIso = (d) => (d && !isNaN(d.getTime()) ? d.toISOString() : "Invalid Date");
+  console.log("[ownerTrades] query window", {
+    fromDate,
+    toDate,
+    timeZone,
+    startUTC: safeIso(start),
+    endUTC: safeIso(end),
+  });
 
   const payload = { status: ORDER_STATUS.COMPLETED };
   const doc = new PDFDocument({
@@ -130,12 +145,12 @@ module.exports.ownerTrades = async (req) => {
     .text("Order Documentation", leftMargin + 12, doc.y + 30)
     .fontSize(12)
     .text(
-      `${formatDateDDMMYYYY(fromDate)} - ${formatDateDDMMYYYY(toDate)}`,
+      `${formatCalendarDDMMYYYY(fromDate)} - ${formatCalendarDDMMYYYY(toDate)}`,
       leftMargin + 15
     )
     .text("Report Exported:", leftMargin + 310, doc.y - 19.5)
     .text(
-      formatDateDDMMYYYY(new Date()),
+      formatDateDDMMYYYY(new Date(), timeZone),
       pageWidth - leftMargin - rightMargin - 125,
       doc.y - 11
     );

@@ -19,7 +19,7 @@ const getAccountStatusTemplate = (name, status, type = "account") => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Account Status Update - Countr</title>
+    <title>Account Status Update - countr</title>
     <style>
         * {
             margin: 0;
@@ -126,7 +126,7 @@ const getAccountStatusTemplate = (name, status, type = "account") => {
             <p class="greeting">Dear ${name},</p>
 
             <p class="message">
-                We are writing to inform you that the Countr Admin has <strong>${statusText}</strong> your ${type}.
+                We are writing to inform you that the countr Admin has <strong>${statusText}</strong> your ${type}.
             </p>
 
             <div class="status-box">
@@ -155,7 +155,7 @@ const getAccountStatusTemplate = (name, status, type = "account") => {
         </div>
 
         <div class="email-footer">
-            <p><strong>Countr</strong></p>
+            <p><strong>countr</strong></p>
             <p>Thank you for being part of our community!</p>
         </div>
     </div>

@@ -1,5 +1,6 @@
 const nodemailer = require("nodemailer");
 const twilio = require("twilio");
+const juice = require("juice");
 
 // Alternative OAuth2 configuration (more secure)
 // const transporter = nodemailer.createTransport({
@@ -35,9 +36,16 @@ module.exports.createMail = async (mail_data) => {
       subject: mail_data.subject,
     };
 
-    // Add text or html content
+    // Add text or html content. Inline the CSS so the email renders the same in
+    // clients that strip <head><style> (Outlook) or drop <head> on forwarding.
+    // Guarded so a malformed template can never block sending — falls back to raw.
     if (mail_data.html) {
-      mailOptions.html = mail_data.html;
+      try {
+        mailOptions.html = juice(mail_data.html);
+      } catch (inlineErr) {
+        console.error("⚠️ CSS inline (juice) failed, sending raw HTML:", inlineErr.message);
+        mailOptions.html = mail_data.html;
+      }
     }
     if (mail_data.text) {
       mailOptions.text = mail_data.text;

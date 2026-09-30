@@ -91,7 +91,7 @@ module.exports.createCounter = async (req) => {
       entityId: req.entityId,
       status: STATUS.ACTIVE,
     },
-    { _id: 1 },
+    { _id: 1 }
   );
 
   if (existingCounter) {
@@ -110,7 +110,7 @@ module.exports.createCounter = async (req) => {
 
   const tableNumbers = Array.from(
     { length: Number(tableTo) - Number(tableFrom) + 1 },
-    (_, i) => String(Number(tableFrom) + i),
+    (_, i) => String(Number(tableFrom) + i)
   );
 
   const newCounter = await Counter.create({
@@ -159,7 +159,7 @@ module.exports.createCounter = async (req) => {
   if (isTableService) {
     const lastTable = await Tables.findOne(
       { entityId: req.entityId },
-      { tableSetionNo: 1 },
+      { tableSetionNo: 1 }
     ).sort({ createdAt: -1 });
 
     const newTableSectionNo = lastTable ? lastTable.tableSetionNo + 1 : 1;
@@ -322,7 +322,7 @@ module.exports.createCounterMenuCategory = async (req) => {
         nutritionType,
         counterId,
         entityId,
-      })),
+      }))
   );
 
   // const
@@ -331,7 +331,7 @@ module.exports.createCounterMenuCategory = async (req) => {
 
   io.to(createdCategories[0].entityId.toString()).emit(
     "newCategory",
-    createdCategories,
+    createdCategories
   );
 
   // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
@@ -409,7 +409,7 @@ module.exports.getCounters = async (req) => {
       entityId,
       counterId: { $in: counterIds },
     },
-    { itemName: 1, inStock: 1, counterId: 1 },
+    { itemName: 1, inStock: 1, counterId: 1 }
   ).lean();
 
   // Build mapping of counterId to its items
@@ -591,7 +591,7 @@ module.exports.createMenuItem = async (req) => {
     const fileBuffer = file.buffer;
     fileName = `${req.entityId}_${Date.now()}_${file.originalname.replace(
       / /g,
-      "_",
+      "_"
     )}`;
 
     try {
@@ -662,7 +662,7 @@ module.exports.createMenuItem = async (req) => {
         inStock: true,
         quantity,
       });
-    }),
+    })
   );
 
   // Emit socket event to entity room (for owner)
@@ -833,9 +833,7 @@ module.exports.updateMenuItem = async (req) => {
     // we'll use the one that matches the first counterId
     const matchingCategory =
       menuCategories.find((cat) =>
-        countersToUse.some(
-          (cid) => cid.toString() === cat.counterId.toString(),
-        ),
+        countersToUse.some((cid) => cid.toString() === cat.counterId.toString())
       ) || menuCategories[0];
 
     newMenuCategoryId = matchingCategory._id;
@@ -870,22 +868,22 @@ module.exports.updateMenuItem = async (req) => {
   const counterIdsArray = Array.isArray(counterIds)
     ? counterIds
     : counterIds
-      ? [counterIds]
-      : [];
+    ? [counterIds]
+    : [];
 
   if (action === EDIT_ACTION.EDIT && counterIdsArray.length > 0) {
     const existingCounterIds = items
       .map((i) => i.counterId?.toString())
       .filter(Boolean);
     const newCounterIds = counterIdsArray.filter(
-      (cid) => cid && !existingCounterIds.includes(cid.toString()),
+      (cid) => cid && !existingCounterIds.includes(cid.toString())
     );
 
     if (newCounterIds.length > 0) {
       const referenceItem = items[0];
       const categoryToUse = await MenuCategory.findById(
         referenceItem.menuCategoryId,
-        { categoryName: 1 },
+        { categoryName: 1 }
       ).lean();
       const itemCategoryName = categoryName ?? categoryToUse?.categoryName;
 
@@ -1196,7 +1194,7 @@ module.exports.getCreatedItems = async (req) => {
         },
         entityId,
       },
-      { _id: 1 },
+      { _id: 1 }
     );
     console.log("categories found:", categories);
     menuCategoryIds = categories.map((cat) => cat._id);
@@ -1279,7 +1277,7 @@ module.exports.getCreatedItems = async (req) => {
 
   const paginatedItems = filteredItems.slice(
     (pageNo - 1) * pageLimit,
-    pageNo * pageLimit,
+    pageNo * pageLimit
   );
 
   const itemsList = paginatedItems.map((item) => ({
@@ -1379,7 +1377,7 @@ module.exports.createEvent = async (req) => {
     const fileBuffer = file.buffer;
     fileName = `${req.entityId}_${Date.now()}_${file.originalname.replace(
       / /g,
-      "_",
+      "_"
     )}`;
 
     try {
@@ -1420,7 +1418,7 @@ module.exports.createEvent = async (req) => {
   const savedEvent = await newEvent.save();
   await Event.findOneAndUpdate(
     { _id: newEvent._id },
-    { $inc: { activeUsers: 1 } },
+    { $inc: { activeUsers: 1 } }
   );
 
   // Socket emit to owner for real-time UI update
@@ -1678,7 +1676,7 @@ module.exports.getUpcomingEvents = async (req) => {
 
     const endOfWeek = new Date(currentDateTime);
     endOfWeek.setDate(
-      currentDateTime.getDate() + (7 - currentDateTime.getDay()) - 1,
+      currentDateTime.getDate() + (7 - currentDateTime.getDay()) - 1
     );
     endOfWeek.setHours(23, 59, 59, 999);
 
@@ -1699,7 +1697,7 @@ module.exports.getUpcomingEvents = async (req) => {
       23,
       59,
       59,
-      999,
+      999
     );
 
     startDate = startFromTomorrow;
@@ -1772,8 +1770,8 @@ module.exports.getUpcomingEvents = async (req) => {
           30,
           Math.ceil(
             (eventTo.getTime() - currentDateTime.getTime()) /
-              (1000 * 60 * 60 * 24),
-          ),
+              (1000 * 60 * 60 * 24)
+          )
         );
 
         // Start from today (i = 0) to check if event is happening today and hasn't started
@@ -1979,7 +1977,7 @@ module.exports.getOngoingEventDetails = async (req) => {
       entityId: req.entityId,
     },
     null,
-    { sort: { from: -1 } },
+    { sort: { from: -1 } }
   )
     .populate({
       path: "counterIds",
@@ -1997,7 +1995,7 @@ module.exports.getOngoingEventDetails = async (req) => {
         event.repetitiveDays.length !== 7
       ) {
         console.log(
-          `Treating non-repetitive event (invalid repetitiveDays): ${event.eventName}`,
+          `Treating non-repetitive event (invalid repetitiveDays): ${event.eventName}`
         );
         return true;
       }
@@ -2029,8 +2027,8 @@ module.exports.getOngoingEventDetails = async (req) => {
           nowUTC.getUTCMonth(),
           nowUTC.getUTCDate(),
           startHour,
-          startMin,
-        ),
+          startMin
+        )
       );
       let todayWindowEnd = new Date(
         Date.UTC(
@@ -2038,8 +2036,8 @@ module.exports.getOngoingEventDetails = async (req) => {
           nowUTC.getUTCMonth(),
           nowUTC.getUTCDate(),
           endHour,
-          endMin,
-        ),
+          endMin
+        )
       );
 
       // Handle midnight-spanning events
@@ -2097,8 +2095,8 @@ module.exports.getOngoingEventDetails = async (req) => {
             nowUTC.getUTCMonth(),
             nowUTC.getUTCDate(),
             fromHours,
-            fromMinutes,
-          ),
+            fromMinutes
+          )
         );
 
         let eventEndToday = new Date(
@@ -2107,8 +2105,8 @@ module.exports.getOngoingEventDetails = async (req) => {
             nowUTC.getUTCMonth(),
             nowUTC.getUTCDate(),
             toHours,
-            toMinutes,
-          ),
+            toMinutes
+          )
         );
 
         // Handle events that span midnight
@@ -2121,14 +2119,14 @@ module.exports.getOngoingEventDetails = async (req) => {
         const eventToDate = new Date(event.to);
         const daysDiff = Math.floor(
           (eventToDate.getTime() - eventFromDate.getTime()) /
-            (1000 * 60 * 60 * 24),
+            (1000 * 60 * 60 * 24)
         );
 
         if (daysDiff > 0) {
           // Multi-day event: check if current time is within the actual from/to range
           if (!(nowUTC >= eventFromDate && nowUTC <= eventToDate)) {
             console.log(
-              `Skipping multi-day event as current UTC time is not within event range: ${event.eventName}`,
+              `Skipping multi-day event as current UTC time is not within event range: ${event.eventName}`
             );
             return false;
           }
@@ -2136,7 +2134,7 @@ module.exports.getOngoingEventDetails = async (req) => {
           // Single day event: check UTC time window
           if (!(nowUTC >= eventStartToday && nowUTC <= eventEndToday)) {
             console.log(
-              `Skipping event as current UTC time is not within today's event window: ${event.eventName}`,
+              `Skipping event as current UTC time is not within today's event window: ${event.eventName}`
             );
             return false;
           }
@@ -2172,7 +2170,13 @@ module.exports.getOngoingEventDetails = async (req) => {
 
   const orders = await Order.find({
     eventId: { $in: Array.from(eventDetailsMap.keys()) },
-    status: { $nin: [globalConstants.ORDER_STATUS.WAITING] },
+    status: {
+      $nin: [
+        globalConstants.ORDER_STATUS.WAITING,
+        globalConstants.ORDER_STATUS.PAYMENT_PROCESSING,
+        globalConstants.ORDER_STATUS.PAYMENT_FAILED,
+      ],
+    },
   });
 
   orders.forEach((order) => {
@@ -2263,7 +2267,7 @@ module.exports.getMonthlyEventDetails = async (req) => {
   // Map single-day event details with aggregated data
   const singleDayEventDetails = singleDayEvents.map((event) => {
     const orderSummary = ordersOfSingleDayEvents.find(
-      (summary) => summary._id.toString() === event._id.toString(),
+      (summary) => summary._id.toString() === event._id.toString()
     ) || { totalOrders: 0, totalAmount: 0, orders: [] };
 
     return {
@@ -2344,7 +2348,7 @@ module.exports.getEventsByMonthAndYear = async (req, res) => {
     pastEvents.map(async (event) => {
       const totalOrders = await Order.countDocuments({ eventId: event._id });
       return { ...event.toObject(), totalOrders };
-    }),
+    })
   );
 
   return eventsWithOrders;
@@ -2355,7 +2359,7 @@ module.exports.getCounterAndCategory = async (req) => {
   const menuCategories = await MenuCategory.find(
     { entityId: req.entityId },
     { entityId: 0, createdAt: 0, updatedAt: 0 },
-    { sort: { _id: -1 }, lean: true },
+    { sort: { _id: -1 }, lean: true }
   ).populate({
     path: "counterId",
     select: "counterName status",
@@ -2363,7 +2367,7 @@ module.exports.getCounterAndCategory = async (req) => {
   });
 
   const filteredCategories = menuCategories.filter(
-    (category) => category.counterId?.status === STATUS.ACTIVE,
+    (category) => category.counterId?.status === STATUS.ACTIVE
   );
 
   const query = { ownerId: userId, entityId };
@@ -2386,7 +2390,7 @@ module.exports.getCounterAndCategory = async (req) => {
 module.exports.getMenuCategory = async (req) => {
   const menuCategories = await MenuCategory.find(
     { entityId: req.entityId },
-    { entityId: 0, createdAt: 0, updatedAt: 0 },
+    { entityId: 0, createdAt: 0, updatedAt: 0 }
   )
     .sort({ _id: -1 })
     .lean()
@@ -2416,7 +2420,7 @@ module.exports.getMenuCategory = async (req) => {
 
     if (category.counterId) {
       const alreadyAdded = categoryMap[category.categoryName].counterIds.some(
-        (c) => c._id.toString() === category.counterId._id.toString(),
+        (c) => c._id.toString() === category.counterId._id.toString()
       );
       if (!alreadyAdded) {
         categoryMap[category.categoryName].counterIds.push(category.counterId);
@@ -2586,7 +2590,7 @@ module.exports.editCategory = async (req) => {
       // Unlink items from these categories (don't delete items)
       await ItemDetails.updateMany(
         { menuCategoryId: { $in: categoryIds } },
-        { $unset: { menuCategoryId: "" } },
+        { $unset: { menuCategoryId: "" } }
       );
     }
 
@@ -2657,7 +2661,7 @@ module.exports.getMenuCategoryItems = async (req) => {
     {
       sort: { updatedAt: -1 },
       lean: true,
-    },
+    }
   ).populate("itemId");
 
   const menuItemsResp = menuItems.reduce((acc, menuItem) => {
@@ -2722,7 +2726,7 @@ module.exports.getCounterMenuQuantites = async (req) => {
   const itemDetails = await ItemDetails.find(
     { entityId: req.entityId, itemId },
     { counterId: 1, quantity: 1 },
-    { lean: 1 },
+    { lean: 1 }
   );
   if (!itemDetails.length) {
     throwError({
@@ -2733,7 +2737,7 @@ module.exports.getCounterMenuQuantites = async (req) => {
   const counterListOfEntity = await Counter.find(
     { entityId: req.entityId },
     { counterName: 1, _id: 1 },
-    { sort: { _id: -1 }, lean: 1 },
+    { sort: { _id: -1 }, lean: 1 }
   );
   const counterListQuantity = counterListOfEntity.reduce(
     (acc, counterDetails) => {
@@ -2760,7 +2764,7 @@ module.exports.getCounterMenuQuantites = async (req) => {
       }
       return acc;
     },
-    [],
+    []
   );
   return counterListQuantity;
 };
@@ -2796,6 +2800,8 @@ module.exports.updateCounterSettings = async (req) => {
         $nin: [
           globalConstants.ORDER_STATUS.COMPLETED,
           globalConstants.ORDER_STATUS.CANCELLED,
+          globalConstants.ORDER_STATUS.PAYMENT_FAILED,
+          globalConstants.ORDER_STATUS.PAYMENT_PROCESSING,
         ],
       },
     });
@@ -2958,7 +2964,7 @@ module.exports.updateCounterSettings = async (req) => {
       });
 
       const isConflict = conflictingTables.some(
-        (table) => table.counterIds.length > 1,
+        (table) => table.counterIds.length > 1
       );
 
       if (isConflict) {
@@ -2983,7 +2989,7 @@ module.exports.updateCounterSettings = async (req) => {
         // Table service was just enabled - create new table record
         const lastTable = await Tables.findOne(
           { entityId: counter.entityId },
-          { tableSetionNo: 1 },
+          { tableSetionNo: 1 }
         ).sort({ createdAt: -1 });
 
         const newTableSectionNo = lastTable ? lastTable.tableSetionNo + 1 : 1;
@@ -3013,6 +3019,8 @@ module.exports.updateCounterSettings = async (req) => {
         $nin: [
           globalConstants.ORDER_STATUS.COMPLETED,
           globalConstants.ORDER_STATUS.CANCELLED,
+          globalConstants.ORDER_STATUS.PAYMENT_FAILED,
+          globalConstants.ORDER_STATUS.PAYMENT_PROCESSING,
         ],
       },
     });
@@ -3027,31 +3035,31 @@ module.exports.updateCounterSettings = async (req) => {
     // 2. Unlink items - remove this counter from items' counterIds
     await ItemDetails.updateMany(
       { counterIds: counterId },
-      { $pull: { counterIds: counterId } },
+      { $pull: { counterIds: counterId } }
     );
 
     // 3. Unlink tables - remove this counter from tables' counterIds
     await Tables.updateMany(
       { counterIds: counterId },
-      { $pull: { counterIds: counterId } },
+      { $pull: { counterIds: counterId } }
     );
 
     // 4. Unlink events - remove this counter from events' counterIds
     await Event.updateMany(
       { counterIds: counterId },
-      { $pull: { counterIds: counterId } },
+      { $pull: { counterIds: counterId } }
     );
 
     // 5. Unlink categories - remove counterId reference
     await MenuCategory.updateMany(
       { counterId: counterId },
-      { $unset: { counterId: "" } },
+      { $unset: { counterId: "" } }
     );
 
     // 6. Soft delete counter
     await Counter.updateOne(
       { _id: counterId },
-      { $set: { status: STATUS.DELETED } },
+      { $set: { status: STATUS.DELETED } }
     );
 
     io.to(counter.entityId.toString()).emit("counterUpdate", { counterId });
@@ -3100,7 +3108,7 @@ module.exports.getCounterSettings = async (req) => {
   const counterSettings = await Counter.findOne(
     { _id: counterId },
     { counterName: 1, isTableService: 1, isSelfPickUp: 1, totalTables: 1 },
-    { lean: 1 },
+    { lean: 1 }
   );
   return counterSettings;
 };
@@ -3411,7 +3419,7 @@ module.exports.editBusinessDetails = async (req) => {
 
     const passwordCompare = await comparePassword(
       newPassword,
-      userPass.password,
+      userPass.password
     );
     if (passwordCompare) {
       throwError({
@@ -3456,7 +3464,7 @@ module.exports.editBusinessDetails = async (req) => {
   if (action === EDIT_ACTION.EDIT && file) {
     const fileName = `${entityId}_${Date.now()}_${file.originalname.replace(
       / /g,
-      "_",
+      "_"
     )}`;
     try {
       const { Location } = await uploadBufferToS3(file.buffer, fileName);
@@ -3502,21 +3510,22 @@ module.exports.editBusinessDetails = async (req) => {
   if (unifiedContactNumber) {
     if (!enteredOtp) {
       const otp = crypto.randomInt(100000, 999999).toString();
+      console.log(`[OTP] Owner/MobileUpdate contactNumber=${unifiedContactNumber} otp=${otp}`);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
       await Otp.findOneAndUpdate(
         { contactNumber: unifiedContactNumber },
         { otp, userId, expiresAt },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
       );
 
-      const msg = `Your OTP for updating contact number on Countr is: ${otp} (Valid for 5 minutes)`;
+      const msg = `Your OTP for updating contact number on countr is: ${otp} (Valid for 5 minutes)`;
 
       await sendSMS({ toPhoneNumber: unifiedContactNumber, message: msg });
 
       await User.updateOne(
         { _id: userId },
-        { contactNumber: unifiedContactNumber, contactOtpVerified: false },
+        { contactNumber: unifiedContactNumber, contactOtpVerified: false }
       );
       message = t("OWNER_CONTACT_OTP_SENT", lang);
       return { message, otp, otpSent: true };
@@ -3537,7 +3546,7 @@ module.exports.editBusinessDetails = async (req) => {
       await Otp.deleteOne({ contactNumber: unifiedContactNumber });
       await User.updateOne(
         { _id: userId },
-        { contactNumber: unifiedContactNumber, contactOtpVerified: true },
+        { contactNumber: unifiedContactNumber, contactOtpVerified: true }
       );
 
       updateEntityFields.contactNumber = unifiedContactNumber;
@@ -3545,7 +3554,7 @@ module.exports.editBusinessDetails = async (req) => {
 
       await EntityDetails.updateOne(
         { _id: entityId },
-        { entityContactNumber: unifiedContactNumber, contactOtpVerified: true },
+        { entityContactNumber: unifiedContactNumber, contactOtpVerified: true }
       );
 
       message = t("OWNER_CONTACT_UPDATE_SUCCESS", lang);
@@ -3583,18 +3592,19 @@ module.exports.editBusinessDetails = async (req) => {
         });
       }
       const otp = crypto.randomInt(100000, 999999).toString();
+      console.log(`[OTP] Owner/EmailUpdate email=${email} otp=${otp}`);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
       await Otp.findOneAndUpdate(
         { email },
         { otp, userId, expiresAt },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
       );
 
       const mail_data = {
         to: email,
-        subject: "COUNTR: OTP for Email Update",
-        text: `Please use the below OTP to verify your identity for updating your email on Countr: \n\n ${otp} \n\n (Valid for 5 minutes)`,
+        subject: "countr: OTP for Email Update",
+        text: `Please use the below OTP to verify your identity for updating your email on countr: \n\n ${otp} \n\n (Valid for 5 minutes)`,
       };
       createMail(mail_data);
       await User.updateOne({ _id: userId }, { emailOtpVerified: false });
@@ -3650,14 +3660,14 @@ module.exports.getBusinessUserDetails = async (req) => {
       userId,
       status: STATUS.ACTIVE,
     },
-    { owner: 0, userId: 0 },
+    { owner: 0, userId: 0 }
   ).lean();
   const user = await User.findOne(
     {
       _id: userId,
       status: STATUS.ACTIVE,
     },
-    { fcmToken: 0 },
+    { fcmToken: 0 }
   ).lean();
 
   entity.image = generatePresignedUrl(entity.image);
@@ -3707,7 +3717,7 @@ module.exports.addingTables = async (req) => {
 
   const tableNumbers = Array.from(
     { length: Number(tableTo) - Number(tableFrom) + 1 },
-    (_, i) => String(Number(tableFrom) + i),
+    (_, i) => String(Number(tableFrom) + i)
   );
 
   const tablesExists = await Tables.find({
@@ -3723,7 +3733,7 @@ module.exports.addingTables = async (req) => {
   }
   const lastTable = await Tables.findOne(
     { entityId },
-    { tableSetionNo: 1, tableSectionName: 1 },
+    { tableSetionNo: 1, tableSectionName: 1 }
   ).sort({ createdAt: -1 });
 
   const newTableSectionNo = lastTable ? lastTable.tableSetionNo + 1 : 1;
@@ -3781,7 +3791,7 @@ module.exports.addingTables = async (req) => {
         tableCount: tableNumbers,
         isTableService: true,
       },
-    },
+    }
   );
 
   return newTable;
@@ -3817,7 +3827,7 @@ module.exports.getCountersForTableManagement = async (req) => {
   return counterList.map((counter) => ({
     ...counter.toObject(),
     isAssignedToCurrentTable: currentTableCounterIds.includes(
-      counter._id.toString(),
+      counter._id.toString()
     ),
   }));
 };
@@ -3935,7 +3945,7 @@ module.exports.editTable = async (req) => {
     let updatedTableCount;
     if (tableFrom !== undefined || tableTo !== undefined) {
       updatedTableCount = Array.from({ length: newTo - newFrom + 1 }, (_, i) =>
-        String(newFrom + i),
+        String(newFrom + i)
       );
       tableData.tableCount = updatedTableCount;
     }
@@ -3949,7 +3959,7 @@ module.exports.editTable = async (req) => {
     if (Object.keys(counterUpdate).length > 0 && tableData.counterIds?.length) {
       await Counter.updateMany(
         { _id: { $in: tableData.counterIds } },
-        { $set: counterUpdate },
+        { $set: counterUpdate }
       );
     }
     message = t("OWNER_TABLE_EDIT_SUCCESS", lang);
@@ -4009,7 +4019,7 @@ module.exports.editTable = async (req) => {
 
     // Unlink counters from this table so they can be reassigned
     tableData.counterIds = tableData.counterIds.filter(
-      (cId) => !counterIds.some((id) => id.toString() === cId.toString()),
+      (cId) => !counterIds.some((id) => id.toString() === cId.toString())
     );
     tableData.status = status;
 
@@ -4260,10 +4270,10 @@ module.exports.getUsersFeedback = async (req) => {
 
   const ratingValues = globalConstants.ANSWER_TYPES.RATING.map(String);
   const feedbackValues = globalConstants.ANSWER_TYPES.FEEDBACK.map((v) =>
-    v.toUpperCase(),
+    v.toUpperCase()
   );
   const booleanValues = globalConstants.ANSWER_TYPES.BOOLEAN.map((v) =>
-    v.toUpperCase(),
+    v.toUpperCase()
   );
   let yearMonth;
 
@@ -4373,8 +4383,8 @@ module.exports.getUsersFeedback = async (req) => {
         stats.RATING.count > 0
           ? "RATING"
           : stats.FEEDBACK.GOOD + stats.FEEDBACK.DECENT + stats.FEEDBACK.BAD > 0
-            ? "FEEDBACK"
-            : "BOOLEAN";
+          ? "FEEDBACK"
+          : "BOOLEAN";
       finalStats[yearMonth][questionId] = {
         question: stats.question,
         type,
@@ -4523,7 +4533,7 @@ module.exports.addFeedbackQuestions = async (req) => {
   }
 
   const invalidAnswers = answerType.filter(
-    (ans) => !ALL_ANSWER_TYPES.includes(ans),
+    (ans) => !ALL_ANSWER_TYPES.includes(ans)
   );
   if (invalidAnswers.length > 0) {
     throwError({
@@ -4638,7 +4648,7 @@ module.exports.deleteFeedbackQuestions = async (req) => {
 
   await Feedbacks.updateMany(
     { "answers.questionId": questionId },
-    { $pull: { answers: { questionId } } },
+    { $pull: { answers: { questionId } } }
   );
 
   // Socket emit to owner for real-time UI update
@@ -4684,6 +4694,7 @@ module.exports.restaurantOpen = async (req) => {
         $nin: [
           globalConstants.ORDER_STATUS.COMPLETED,
           globalConstants.ORDER_STATUS.CANCELLED,
+          globalConstants.ORDER_STATUS.PAYMENT_FAILED,
         ],
       },
     });
@@ -4710,7 +4721,7 @@ module.exports.emailExist = async (req) => {
     const users = await User.find(query).lean();
 
     const emailExist = users.some(
-      (u) => u.role === globalConstants.ROLES.STORE_OWNER,
+      (u) => u.role === globalConstants.ROLES.STORE_OWNER
     );
 
     return {
@@ -4722,7 +4733,7 @@ module.exports.emailExist = async (req) => {
     query.contactNumber = contactNumber;
     const users = await User.find(query).lean();
     const phoneExist = users.some(
-      (u) => u.role === globalConstants.ROLES.STORE_OWNER,
+      (u) => u.role === globalConstants.ROLES.STORE_OWNER
     );
 
     return {
@@ -4794,7 +4805,7 @@ module.exports.deleteEntityAccount = async (req) => {
           fcmToken: [],
           socketId: null,
         },
-      },
+      }
     ),
     // Update entity: set status to DELETED
     EntityDetails.updateOne(
@@ -4803,7 +4814,7 @@ module.exports.deleteEntityAccount = async (req) => {
         $set: {
           status: STATUS.DELETED,
         },
-      },
+      }
     ),
     // Delete entity-related operational data
     Counter.deleteMany({ entityId }),
@@ -4852,7 +4863,7 @@ module.exports.createItemSearchLogs = async (req) => {
   if (existingLog) {
     return ItemSearchLogs.updateOne(
       { _id: existingLog._id },
-      { $set: { createdAt: new Date(), isRemoved: false } },
+      { $set: { createdAt: new Date(), isRemoved: false } }
     );
   }
 
@@ -4940,7 +4951,7 @@ module.exports.restaurantCancelOrder = async (req) => {
 
   await Order.updateOne(
     { _id: orderId },
-    { $set: { status: globalConstants.ORDER_STATUS.CANCELLED } },
+    { $set: { status: globalConstants.ORDER_STATUS.CANCELLED } }
   );
 
   io.to(order.entityId.toString()).emit("cancelOrder", {
@@ -4954,6 +4965,7 @@ module.exports.restaurantCancelOrder = async (req) => {
   sendFirebaseNotification({
     topic: `user_${order.userId}`,
     showNotification: true,
+    alertSound: true,
     title: "Order Cancelled",
     body: `Your order #${order.tokenNumber} has been cancelled by the restaurant.`,
     data: {
@@ -5060,6 +5072,8 @@ module.exports.editEvent = async (req) => {
       $nin: [
         globalConstants.ORDER_STATUS.COMPLETED,
         globalConstants.ORDER_STATUS.CANCELLED,
+        globalConstants.ORDER_STATUS.PAYMENT_PROCESSING,
+        globalConstants.ORDER_STATUS.PAYMENT_FAILED,
       ],
     },
   });
@@ -5077,7 +5091,7 @@ module.exports.editEvent = async (req) => {
     const fileBuffer = file.buffer;
     fileName = `${req.entityId}_${Date.now()}_${file.originalname.replace(
       / /g,
-      "_",
+      "_"
     )}`;
 
     try {
@@ -5205,7 +5219,7 @@ module.exports.editEvent = async (req) => {
     // Send Firebase notification to customer app for updated event
     sendFirebaseNotification({
       topic: "customer_entity",
-      showNotification: true,
+      showNotification: false,
       title: "Event Updated",
       body: `The event "${event.eventName}" has been updated.`,
       data: {
@@ -5371,8 +5385,7 @@ module.exports.getOwnerAppFeedbackAnswers = async (req) => {
       // Check if answer exists in any language's FRIENDLY options
       const isTranslatableOption = ANSWER_TYPES.FRIENDLY.some(
         (option) =>
-          t(option, "en") === answer.answer ||
-          t(option, "de") === answer.answer,
+          t(option, "en") === answer.answer || t(option, "de") === answer.answer
       );
 
       if (isTranslatableOption) {

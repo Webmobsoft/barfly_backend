@@ -9,6 +9,10 @@ const {
 } = require("../Controller/aws-service");
 const { createMail } = require("../Utils/mailer");
 const { registerFonts, createPdfHelpers } = require("./pdfUtils");
+const {
+  RECEIPT_TIMEZONE,
+  RECEIPT_LOCALE,
+} = require("../Utils/globalConstants");
 
 const genrateCustomerOrderReport = async (req) => {
   const { userId, entityId, orders, mode = "Online" } = req;
@@ -46,7 +50,7 @@ const genrateCustomerOrderReport = async (req) => {
             subject: "Your Order Report",
             text: `Dear ${
               currentUser.fullName || "Customer"
-            },\n\nPlease find your order report attached.\n\nThank you for using our service!\n\nBest regards,\nCountr App Team`,
+            },\n\nPlease find your order report attached.\n\nThank you for using our service!\n\nBest regards,\ncountr App Team`,
             attachments: [
               {
                 filename: filename,
@@ -121,11 +125,40 @@ const genrateCustomerOrderReport = async (req) => {
       doc.y + 4
     );
 
+  // Render the order time in the client's timezone (sent via header at order
+  // time and stored on the order). Server runs in UTC otherwise.
+  // Falsy createdAt (null/undefined/"") falls back to now; a truthy-but-
+  // unparseable value is caught by the isNaN guard so we never print 1970/"Invalid Date".
+  const parsedOrderDate = new Date(orders?.createdAt || Date.now());
+  const orderDate = isNaN(parsedOrderDate.getTime())
+    ? new Date()
+    : parsedOrderDate;
+
+  // Validate the client-supplied timezone — an invalid IANA value would make
+  // toLocaleString throw, so fall back to RECEIPT_TIMEZONE when missing/invalid.
+  const resolveTimeZone = (tz) => {
+    if (!tz) return RECEIPT_TIMEZONE;
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: tz });
+      return tz;
+    } catch {
+      return RECEIPT_TIMEZONE;
+    }
+  };
+  const receiptTimeZone = resolveTimeZone(orders?.timezone);
+
   doc
     .fontSize(12)
     .font("Helveticaneue-Light")
     .text(
-      `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+      orderDate.toLocaleString(RECEIPT_LOCALE, {
+        timeZone: receiptTimeZone,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
       leftMargin + 12,
       doc.y + 30
     )

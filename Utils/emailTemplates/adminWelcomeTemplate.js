@@ -1,16 +1,19 @@
+const { t } = require("../translator");
+
 /**
  * Email Template for Admin Welcome Email
  * @param {string} firstName - The admin's first name
+ * @param {string} lang - Language code ("en" or "de"). Defaults to "en".
  * @returns {string} HTML email template
  */
-const getAdminWelcomeTemplate = (firstName) => {
+const getAdminWelcomeTemplate = (firstName, lang = "en") => {
   return `
 <!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to Countr Admin</title>
+    <title>${t("EMAIL_WELCOME_ADMIN_TITLE", lang)}</title>
     <style>
         * {
             margin: 0;
@@ -54,7 +57,8 @@ const getAdminWelcomeTemplate = (firstName) => {
             text-align: left;
         }
         .highlight-box {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            background-color: #e8edf6; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             border-radius: 12px;
             padding: 30px;
             margin: 30px 0;
@@ -129,47 +133,49 @@ const getAdminWelcomeTemplate = (firstName) => {
 <body>
     <div class="email-container">
         <div class="email-body">
-            <p class="greeting">Hello ${firstName}!</p>
+            <p class="greeting">${t("EMAIL_WELCOME_ADMIN_GREETING", lang)}${firstName ? ` ${firstName}` : ""}!</p>
 
             <div class="welcome-message">
-                Welcome to the Countr Admin Panel! 🎉
+                ${t("EMAIL_WELCOME_ADMIN_HEADLINE", lang)} 🎉
             </div>
 
             <p class="message">
-                Your admin account has been successfully created. You now have access to the Countr Admin Panel to manage and oversee the platform.
+                ${t("EMAIL_WELCOME_ADMIN_INTRO", lang)}
             </p>
 
             <div class="highlight-box">
-                <p>🔐 You're now a Countr Administrator!</p>
-                <p>Manage the platform with full control and visibility.</p>
+                <p>🔐 ${t("EMAIL_WELCOME_ADMIN_HIGHLIGHT_LINE1", lang)}</p>
+                <p>${t("EMAIL_WELCOME_ADMIN_HIGHLIGHT_LINE2", lang)}</p>
             </div>
 
             <p class="message">
-                Here's what you can do with your Admin account:
+                ${t("EMAIL_WELCOME_ADMIN_FEATURES_HEADING", lang)}
             </p>
 
             <ul class="features-list">
-                <li>👥 Manage users and restaurant accounts</li>
-                <li>📊 View dashboard analytics and reports</li>
-                <li>💰 Monitor transactions and revenue</li>
-                <li>🔧 Configure platform fees and settings</li>
+                <li>👥 ${t("EMAIL_WELCOME_ADMIN_FEATURE_1", lang)}</li>
+                <li>📊 ${t("EMAIL_WELCOME_ADMIN_FEATURE_2", lang)}</li>
+                <li>💰 ${t("EMAIL_WELCOME_ADMIN_FEATURE_3", lang)}</li>
+                <li>🔧 ${t("EMAIL_WELCOME_ADMIN_FEATURE_4", lang)}</li>
             </ul>
 
             <div class="cta-section">
-                <p><strong>🚀 Ready to get started?</strong></p>
-                <p>Log in to the Admin Panel and start managing the Countr platform!</p>
+                <p><strong>🚀 ${t("EMAIL_WELCOME_ADMIN_CTA_TITLE", lang)}</strong></p>
+                <p>${t("EMAIL_WELCOME_ADMIN_CTA_BODY", lang)}</p>
             </div>
 
             <div class="divider"></div>
 
             <p class="message" style="font-size: 14px; color: #999; text-align: center;">
-                If you have any questions or need assistance, please reach out to the support team.
+                ${t("EMAIL_WELCOME_ADMIN_SUPPORT", lang)}
             </p>
         </div>
 
         <div class="email-footer">
-            <p><strong>Countr</strong></p>
-            <p>Thank you for being part of the team!</p>
+            <p><strong>${t("EMAIL_FOOTER_KLG", lang)}</strong></p>
+            <p><strong>${t("EMAIL_FOOTER_SEAT", lang)}</strong></p>
+            <p><strong>${t("EMAIL_FOOTER_UID", lang)}</strong></p>
+            <p>${t("EMAIL_WELCOME_ADMIN_FOOTER_CLOSING", lang)}</p>
         </div>
     </div>
 </body>

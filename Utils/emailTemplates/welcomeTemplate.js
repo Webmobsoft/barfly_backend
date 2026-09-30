@@ -1,16 +1,19 @@
+const { t } = require("../translator");
+
 /**
- * Email Template for Welcome Email
+ * Email Template for Customer Welcome Email
  * @param {string} firstName - The user's first name
+ * @param {string} lang - Language code ("en" or "de"). Defaults to "en".
  * @returns {string} HTML email template
  */
-const getWelcomeTemplate = (firstName) => {
+const getWelcomeTemplate = (firstName, lang = "en") => {
   return `
 <!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to Countr Customer</title>
+    <title>${t("EMAIL_WELCOME_CUSTOMER_TITLE", lang)}</title>
     <style>
         * {
             margin: 0;
@@ -54,7 +57,8 @@ const getWelcomeTemplate = (firstName) => {
             text-align: left;
         }
         .highlight-box {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            background-color: #e8edf6; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             border-radius: 12px;
             padding: 30px;
             margin: 30px 0;
@@ -129,47 +133,55 @@ const getWelcomeTemplate = (firstName) => {
 <body>
     <div class="email-container">
         <div class="email-body">
-            <p class="greeting">Hello ${firstName}!</p>
-            
+            <p class="greeting">${t(
+              "EMAIL_WELCOME_CUSTOMER_GREETING",
+              lang
+            )}${firstName ? ` ${firstName}` : ""}!</p>
+
             <div class="welcome-message">
-                Welcome to Countr Customer! 🎉
+                ${t("EMAIL_WELCOME_CUSTOMER_HEADLINE", lang)} 🎉
             </div>
-            
+
             <p class="message">
-                We're thrilled to have you join our community! Your account has been successfully created, and you're all set to start exploring everything Countr has to offer.
+                ${t("EMAIL_WELCOME_CUSTOMER_INTRO", lang)}
             </p>
-            
+
             <div class="highlight-box">
-                <p>✨ You're now a Countr Customer!</p>
-                <p>Order things at your fingertips like never before!</p>
+                <p>✨ ${t("EMAIL_WELCOME_CUSTOMER_HIGHLIGHT_LINE1", lang)}</p>
+                <p>${t("EMAIL_WELCOME_CUSTOMER_HIGHLIGHT_LINE2", lang)}</p>
             </div>
-            
+
             <p class="message">
-                Here's what you can do with your Countr account:
+                ${t("EMAIL_WELCOME_CUSTOMER_FEATURES_HEADING", lang)}
             </p>
-            
+
             <ul class="features-list">
-                <li>📱 Browse and discover exciting events and products</li>
-                <li>🛒 Make secure payments with multiple payment options</li>
-                <li>📊 Track your orders and purchase history</li>
-                <li>⭐ Share feedback and help improve our services</li>
+                <li>📱 ${t("EMAIL_WELCOME_CUSTOMER_FEATURE_1", lang)}</li>
+                <li>🛒 ${t("EMAIL_WELCOME_CUSTOMER_FEATURE_2", lang)}</li>
+                <li>📊 ${t("EMAIL_WELCOME_CUSTOMER_FEATURE_3", lang)}</li>
+                <li>⭐ ${t("EMAIL_WELCOME_CUSTOMER_FEATURE_4", lang)}</li>
             </ul>
-            
+
             <div class="cta-section">
-                <p><strong>🚀 Ready to get started?</strong></p>
-                <p>Log in to your account and start exploring all the amazing features we have in store for you!</p>
+                <p><strong>🚀 ${t(
+                  "EMAIL_WELCOME_CUSTOMER_CTA_TITLE",
+                  lang
+                )}</strong></p>
+                <p>${t("EMAIL_WELCOME_CUSTOMER_CTA_BODY", lang)}</p>
             </div>
-            
+
             <div class="divider"></div>
-            
+
             <p class="message" style="font-size: 14px; color: #999; text-align: center;">
-                If you have any questions or need assistance, our support team is here to help!
+                ${t("EMAIL_WELCOME_CUSTOMER_SUPPORT", lang)}
             </p>
         </div>
-        
+
         <div class="email-footer">
-            <p><strong>Countr</strong></p>
-            <p>Thank you for choosing us!</p>
+            <p><strong>${t("EMAIL_FOOTER_KLG", lang)}</strong></p>
+            <p><strong>${t("EMAIL_FOOTER_SEAT", lang)}</strong></p>
+            <p><strong>${t("EMAIL_FOOTER_UID", lang)}</strong></p>
+            <p>${t("EMAIL_WELCOME_CUSTOMER_FOOTER_CLOSING", lang)}</p>
         </div>
     </div>
 </body>
