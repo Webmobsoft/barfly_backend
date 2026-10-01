@@ -13,6 +13,8 @@ const orderSchme = new Schema(
           itemId: { type: ObjectId, ref: "ItemDetails" },
           quantity: { type: Number },
           note: { type: String, default: "" },
+          itemName: { type: String },  // snapshot at order time
+          itemPrice: { type: Number }, // snapshot at order time
         },
       ],
     },
@@ -48,6 +50,12 @@ const orderSchme = new Schema(
     couponCode: { type: String },
     tax: { type: Number },
     platformFees: { type: Number },
+    paymentMethod: { type: String },
+    walleeTransactionId: { type: Number },
+    // IANA timezone sent by the client at order time (e.g. "Europe/Zurich"),
+    // used to render the receipt PDF in the right local time. Optional —
+    // falls back to RECEIPT_TIMEZONE when absent/invalid.
+    timezone: { type: String },
   },
   { timestamps: true, minimize: false }
 );

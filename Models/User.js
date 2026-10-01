@@ -21,7 +21,7 @@ const userSchema = new Schema(
     socketId: { type: String },
     // age: { type: String },
     countrTag: { type: String },
-    blockedAt: { type: Date },
+    blockUnblockDate: { type: Date },
   },
   { timestamps: true, minimize: false }
 );

@@ -36,16 +36,19 @@ const orderSocket = async (io) => {
 
       await User.updateOne({ _id: userId }, { $set: { socketId: socket.id } });
 
-      socket.join(entityId.toString());
+      // Admin joins admin_room for dashboard real-time updates
+      if (decoded.isAdmin === true) {
+        socket.join("admin_room");
+        console.info(`Admin ${userId} joined room: admin_room`);
+      }
 
-      console.info(`User ${userId} joined room: ${entityId}`);
-      const sockets = await io.in(entityId.toString()).fetchSockets();
-      console.log(
-        `Sockets in room ${entityId}:`,
-        sockets.map((s) => s.id)
-      );
+      if (entityId) {
+        socket.join(entityId.toString());
+        console.info(`User ${userId} joined room: ${entityId}`);
+      }
+
       socket.on("disconnect", async () => {
-        console.log("A restaurant disconnected:", socket.id);
+        console.log("User disconnected:", socket.id);
         await User.updateOne({ _id: userId }, { $unset: { socketId: "" } });
       });
     } catch (error) {

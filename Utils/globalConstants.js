@@ -63,6 +63,8 @@ const REDIS_KEYS = {
 };
 
 const ORDER_STATUS = {
+  PAYMENT_PROCESSING: "Payment Processing",
+  PAYMENT_FAILED: "Payment Failed",
   IN_PROGRESS: "In Process",
   READY: "Ready",
   COMPLETED: "Completed",
@@ -374,6 +376,15 @@ const SERIAL_TYPE = {
   WEEKENDS: "Weekends",
 };
 
+// Timezone & locale used for rendering dates/times on receipts and PDFs.
+// The app currently operates in Switzerland only, so Europe/Zurich is correct
+// for every venue (auto-handles CET/CEST). Dates are generated server-side, so
+// without this the receipt would use the server's timezone (UTC) instead.
+// FUTURE: for multi-country support, store a timezone per entity and use
+// `entity.timezone || RECEIPT_TIMEZONE` in place of this constant.
+const RECEIPT_TIMEZONE = "Europe/Zurich";
+const RECEIPT_LOCALE = "de-CH";
+
 module.exports = {
   STATUS_CODES,
   ROLES,
@@ -398,4 +409,6 @@ module.exports = {
   APP_FEEDBACK_QUESTIONS,
   OWNER_APP_FEEDBACK_QUESTIONS,
   SERIAL_TYPE,
+  RECEIPT_TIMEZONE,
+  RECEIPT_LOCALE,
 };

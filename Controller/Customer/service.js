@@ -12,6 +12,7 @@ const {
   COUNTRY_ARRAY,
   ANSWER_TYPES,
   APP_FEEDBACK_QUESTIONS,
+  ROLES,
 } = require("../../Utils/globalConstants");
 const throwError = require("../../Utils/throwError");
 const EntityDetails = require("../../Models/EntityDetails");
@@ -53,9 +54,10 @@ module.exports.getEntities = async (req) => {
     isPopular,
   } = req.query;
   const now = new Date();
-
-  if (req.headers["token"] != null) {
-    verifyTokenWithoutResponse(req);
+  // console.log(req.headers["token"], "token"); // Logs sensitive token
+  const token = req.headers["token"];
+  if (token != null && typeof token === "string" && token.trim().length > 0) {
+    await verifyTokenWithoutResponse(req);
   }
 
   const userId = req.id || req.userId;
@@ -104,9 +106,7 @@ module.exports.getEntities = async (req) => {
         event.repetitiveDays.length !== 7
       ) {
         // If invalid repetitiveDays, treat as non-repetitive (same as get-ongoing-event-details)
-        console.log(
-          `[getEntities] Treating repetitive event ${event._id} as non-repetitive (invalid repetitiveDays)`
-        );
+        // console.log(`[getEntities] Treating repetitive event ${event._id} as non-repetitive (invalid repetitiveDays)`); // Debug log
         // Continue to non-repetitive logic below
       } else {
         // Simple 3-step check for repetitive events (same as get-ongoing-event-details):
@@ -637,9 +637,7 @@ module.exports.counterList = async (req) => {
   const entityObjectId = ObjectId(entityId);
   const query = { entityId: entityObjectId, status: STATUS.ACTIVE };
 
-  console.log(
-    `[counterList] Starting with entityId: ${entityId}, converted to ObjectId: ${entityObjectId.toString()}`
-  );
+  // console.log(`[counterList] Starting with entityId: ${entityId}, converted to ObjectId: ${entityObjectId.toString()}`); // Debug log
 
   if (searchTerm) {
     query.counterName = { $regex: searchTerm, $options: "i" };
@@ -659,11 +657,7 @@ module.exports.counterList = async (req) => {
   let currentDay = nowUTC.getUTCDay();
   currentDay = currentDay === 0 ? 6 : currentDay - 1; // Convert to array format (0=Mon, 6=Sun)
 
-  console.log(
-    `[counterList] Querying events with entityId: ${entityObjectId.toString()}, counterIds: ${counterIds
-      .map((id) => id.toString())
-      .join(", ")}`
-  );
+  // console.log(`[counterList] Querying events with entityId: ${entityObjectId.toString()}, counterIds: ${counterIds.map((id) => id.toString()).join(", ")}`); // Debug log
 
   const events = await Event.find(
     {
@@ -687,33 +681,21 @@ module.exports.counterList = async (req) => {
   console.log(
     `[counterList] Found ${events.length} events for entityId: ${entityId}`
   );
-  console.log(
-    `[counterList] CounterIds being checked:`,
-    counterIds.map((id) => id.toString())
-  );
-  console.log(
-    `[counterList] Current UTC time: ${nowUTC.toISOString()}, UTC day: ${currentDay} (0=Mon, 6=Sun)`
-  );
+  // console.log(`[counterList] CounterIds being checked:`, counterIds.map((id) => id.toString())); // Debug log
+  // console.log(`[counterList] Current UTC time: ${nowUTC.toISOString()}, UTC day: ${currentDay} (0=Mon, 6=Sun)`); // Debug log
 
   const liveCounterIds = new Set();
   const counterToEventMap = {};
 
   events.forEach((event) => {
-    console.log(
-      `[counterList] Processing event: ${
-        event.eventName || event._id
-      }, isRepetitive: ${event.isRepetitive}, isAllDay: ${event.isAllDay}`
-    );
-    console.log(
-      `[counterList] Event counterIds:`,
-      event.counterIds.map((id) => id.toString())
-    );
-    console.log(`[counterList] Event repetitiveDays:`, event.repetitiveDays);
+    // console.log(`[counterList] Processing event: ${event.eventName || event._id}, isRepetitive: ${event.isRepetitive}, isAllDay: ${event.isAllDay}`); // Debug log
+    // console.log(`[counterList] Event counterIds:`, event.counterIds.map((id) => id.toString())); // Debug log
+    // console.log(`[counterList] Event repetitiveDays:`, event.repetitiveDays); // Debug log
     const eventFrom = new Date(event.from);
     const eventTo = new Date(event.to);
 
     if (event.isRepetitive) {
-      console.log(`[counterList] Event is repetitive, checking...`);
+      // console.log(`[counterList] Event is repetitive, checking...`); // Debug log
 
       // Check if repetitiveDays array is valid
       if (
@@ -721,9 +703,7 @@ module.exports.counterList = async (req) => {
         event.repetitiveDays.length !== 7
       ) {
         // If invalid repetitiveDays, treat as non-repetitive (same as get-ongoing-event-details)
-        console.log(
-          `[counterList] Treating repetitive event as non-repetitive (invalid repetitiveDays)`
-        );
+        // console.log(`[counterList] Treating repetitive event as non-repetitive (invalid repetitiveDays)`); // Debug log
         // Continue to non-repetitive logic below
       } else {
         // Simple 3-step check for repetitive events (same as get-ongoing-event-details):
@@ -986,7 +966,11 @@ module.exports.counterList = async (req) => {
 module.exports.getCounterMenuCategory = async (req) => {
   const { counterId, searchTerm } = req.query;
 
-  const query = { ...(counterId && { counterId }) };
+  const query = {
+    ...(counterId
+      ? { counterId }
+      : { counterId: { $exists: true, $ne: null } }),
+  };
   if (searchTerm) {
     query.name = { $regex: searchTerm, $options: "i" };
   }
@@ -997,12 +981,15 @@ module.exports.getCounterMenuCategory = async (req) => {
 module.exports.getMenuItems = async (req) => {
   let { menuCategoryId, searchTerm, counterId, entityId } = req.query;
 
-  let filter = { inStock: true, counterId: counterId, entityId };
+  let filter = { counterId: counterId, entityId };
 
   if (searchTerm && searchTerm.trim()) {
     filter.itemName = { $regex: searchTerm, $options: "i" };
   }
   const menuCategory = await MenuCategory.find({ _id: menuCategoryId });
+  if (!menuCategory || menuCategory.length === 0) {
+    return [];
+  }
   const categoryName = menuCategory[0].categoryName;
   const menuItems1 = await ItemDetails.find(filter)
     .populate("menuCategoryId")
@@ -1343,7 +1330,11 @@ module.exports.updateUserDetails = async (req) => {
     return message;
   }
 
-  const query = { status: STATUS.ACTIVE };
+  const query = {
+    status: STATUS.ACTIVE,
+    role: ROLES.CUSTOMER,
+    _id: { $ne: userId },
+  };
   if (email) {
     query.email = email;
   }
@@ -1364,6 +1355,7 @@ module.exports.updateUserDetails = async (req) => {
   if (email) {
     if (!enteredOtp) {
       const otp = crypto.randomInt(100000, 999999).toString();
+      console.log(`[OTP] Customer/EmailUpdate email=${email} otp=${otp}`);
       const expiresAt = new Date(Date.now() + 2 * 60 * 1000);
 
       await Otp.findOneAndUpdate(
@@ -1386,7 +1378,7 @@ module.exports.updateUserDetails = async (req) => {
       await User.updateOne({ _id: userId }, { emailOtpVerified: false });
 
       message = t("OTP_SENT_NEW_EMAIL", lang);
-      return message; 
+      return message;
     } else {
       const otpRecord = await Otp.findOne({ email });
       if (
@@ -1412,6 +1404,7 @@ module.exports.updateUserDetails = async (req) => {
   if (contactNumber) {
     if (!enteredOtp) {
       const otp = crypto.randomInt(100000, 999999).toString();
+      console.log(`[OTP] Customer/MobileUpdate contactNumber=${contactNumber} otp=${otp}`);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
       await Otp.findOneAndUpdate(
@@ -1702,6 +1695,7 @@ exports.newlyAddedEntities = async () => {
 
   const entities = await EntityDetails.find({
     createdAt: { $gte: fortyEightHoursago },
+    status: STATUS.ACTIVE,
   }).sort({ createdAt: -1 });
 
   entities.map((entity) => {
@@ -1713,7 +1707,7 @@ exports.newlyAddedEntities = async () => {
 
 exports.popularEntities = async () => {
   const popular = await EntityDetails.find(
-    {},
+    { status: STATUS.ACTIVE },
     { entityName: 1, city: 1, views: 1, country: 1, status: 1, image: 1 }
   )
     .sort({ views: -1 })
@@ -1889,12 +1883,18 @@ module.exports.getUserAppFeedbackAnswers = async (req) => {
 
 module.exports.getTablesUserSide = async (req) => {
   const { entityId, counterId } = req.query;
-  const query = { entityId, counterIds: counterId };
+  const query = {
+    entityId,
+    counterIds: counterId,
+    status: { $ne: STATUS.DELETED },
+  };
 
   const tables = await Tables.findOne(query, {
     tableCount: 1,
     counterIds: 1,
     entityId: 1,
+    tableSectionName: 1,
+    tableSetionNo: 1,
   })
     .populate({
       path: "counterIds",
@@ -1911,13 +1911,18 @@ module.exports.getTablesUserSide = async (req) => {
   //   return tables;
   // }
 
-  console.log({ tables });
   const tablesRes = [];
+  const counterIdStr = String(counterId);
   tables.counterIds.forEach((counter) => {
-    if (counter._id == counterId && counter.isTableService == true) {
-      tablesRes.push(tables);
+    const cId = counter?._id?.toString?.() ?? counter?.toString?.();
+    if (cId === counterIdStr && counter?.isTableService === true) {
+      tablesRes.push({
+        tableCount: tables.tableCount ?? [],
+        tableSectionName: tables.tableSectionName,
+        tableSetionNo: tables.tableSetionNo,
+        entityId: tables.entityId,
+      });
     }
-    // return false;
   });
 
   return tablesRes;
@@ -1950,4 +1955,12 @@ module.exports.updateNotificationSettings = async (req) => {
     { upsert: true }
   );
   return;
+};
+
+module.exports.getPlatformFee = async (req) => {
+  const { entityId, eventId } = req.query;
+  const raw = global.PLATFORM_FEES ?? 0;
+  // If stored as percentage (e.g. 5 for 5%), convert to decimal (0.05) for frontend
+  const platformFee = raw > 1 ? raw / 100 : raw;
+  return { platformFee };
 };

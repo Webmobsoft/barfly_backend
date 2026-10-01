@@ -20,21 +20,25 @@ app.use(cors());
 const { handleWalleeWebhook } = require("./CustomerServices/walleeServices");
 
 // Log ALL requests to /api/wallee/webhook for debugging
-app.use("/api/wallee/webhook", (req, res, next) => {
-  console.log("📥 Webhook request received at:", new Date().toISOString());
-  next();
-});
+// app.use("/api/wallee/webhook", (req, res, next) => {
+//   console.log("📥 Webhook request received at:", new Date().toISOString());
+//   next();
+// });
 
 // Wallee webhook endpoint - must use express.raw() to preserve raw body for signature verification
-app.post("/api/wallee/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    const result = await handleWalleeWebhook(req);
-    return res.status(200).json(result);
-  } catch (error) {
-    console.error("Webhook error:", error);
-    return res.status(error.status || 500).json({ message: error.message });
-  }
-});
+app.post(
+  "/api/wallee/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const result = await handleWalleeWebhook(req);
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("Webhook error:", error);
+      return res.status(error.status || 500).json({ message: error.message });
+    }
+  },
+);
 
 // Fallback handler for webhook if express.raw() doesn't match
 // app.post("/api/wallee/webhook-fallback", express.json(), async (req, res) => {
@@ -164,7 +168,7 @@ const unProtectedApis = {
   "/api/customer/auth/send-email-otp": true,
   "/api/customer/auth/reset-password": true,
   "/api/get-entities": true,
-  "/api/customer/entities/get-entities": true,
+  // "/api/customer/entities/get-entities": true,
   "/api/customer/entities/get-entity": true,
   "/api/customer/entities/visitor-count": true,
   "/api/customer/entities/get-counter-list": true,
@@ -175,8 +179,9 @@ const unProtectedApis = {
   "/api/customer/entities/popular-entities": true,
   "/api/customer/entities/entity-offers": true,
   "/api/customer/entities/get-tables-user-side": true,
+  "/api/customer/entities/get-platform-fee": true,
 
-  // "/api/customer/entities/get-entities": true,
+  "/api/customer/entities/get-entities": true,
   "/api/owner/auth/register": true,
   "/api/owner/auth/login": true,
   "/api/owner/auth/send-email-otp": true,
@@ -189,6 +194,7 @@ const unProtectedApis = {
   "/api/owner/restaurant/email-exist": true,
   "/api/admins/login-admin": true,
   "/api/admins/reset-password": true,
+  "/api/admins/send-email-otp": true,
   // "/api/admins/add-admin": true,
 
   // "/api/stripe/get-stripe-accounts": true, // Commented out - using Wallee instead
@@ -198,7 +204,7 @@ const unProtectedApis = {
 
 app.use("/api/health-check", (req, res) => {
   return res.status(STATUS_CODES.OK).json({
-    message: `Countr service running...!`,
+    message: `countr service running...!`,
     time: new Date(),
   });
 });
@@ -215,22 +221,26 @@ app.use((req, res, next) => {
   if (unProtectedApis[req.path]) return next();
 
   // Explicitly skip auth for Wallee webhook (handles both exact and with query params)
-  if (req.path === "/api/wallee/webhook" || req.path.startsWith("/api/wallee/webhook")) {
+  if (
+    req.path === "/api/wallee/webhook" ||
+    req.path.startsWith("/api/wallee/webhook")
+  ) {
     return next();
   }
+  // console.log({ req: req.path }); // Noisy: logs every authenticated request
 
   return verifyToken(req, res, next);
 });
 
 app.use(
   "/api/owner/auth",
-  require("./Controller/Owner/Authentication/controller")
+  require("./Controller/Owner/Authentication/controller"),
 );
 app.use("/api/survey", require("./Controller/Owner/Feedback/controller"));
 app.use("/api/owner/restaurant", require("./Controller/Owner/controller"));
 app.use(
   "/api/customer/auth",
-  require("./Controller/Customer/Authentication/controller")
+  require("./Controller/Customer/Authentication/controller"),
 );
 app.use("/api/customer/entities", require("./Controller/Customer/controller"));
 
@@ -250,11 +260,11 @@ app.post("/api/update-menu-items", async (req, res) => {
   try {
     const getMenuitems = await Counter.updateMany(
       {},
-      { $set: { isTableService: false, isSelfPickUp: true, totalTables: 0 } }
+      { $set: { isTableService: false, isSelfPickUp: true, totalTables: 0 } },
     );
     return res.status(200).json(getMenuitems);
   } catch (error) {
-    console.log("error occured in update-menu");
+    console.log("error occured in update-menu",error);
     return res.status(500).json({ error });
   }
 });
@@ -297,13 +307,13 @@ app.get("/api/download-file", async (req, res) => {
 app.post("/update-entity-items", async (req, res) => {
   const lang = getLanguageFromRequest(req);
   try {
-    console.log({ ee: req.entityId });
+    // console.log({ ee: req.entityId });
     const itemsId = await ItemDetails.find({ entityId: req.entityId }).lean();
-    console.log({ itemsId });
+    // console.log({ itemsId });
     const itemIds = itemsId.map((item) => item.itemId);
     await MenuItem.updateMany(
       { _id: { $in: itemIds } },
-      { $set: { entityId: req.entityId } }
+      { $set: { entityId: req.entityId } },
     );
     return res
       .status(STATUS_CODES.OK)
@@ -412,6 +422,28 @@ app.post("/api/register-token", async (req, res) => {
 //     res.sendStatus(STATUS_CODES.OK);
 //   }
 // );
+
+// Global error handler — guarantees every error becomes a JSON response so
+// nginx never has to render its default HTML 500 page. Must be registered
+// AFTER all routes.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const lang = getLanguageFromRequest(req);
+  console.error("Unhandled error:", err);
+  const status = err.status || err.statusCode || STATUS_CODES.SERVER_ERROR;
+  return res.status(status).json({
+    message: err.message || t("SERVER_ERROR", lang) || "Internal Server Error",
+  });
+});
+
+// Crash safety nets — log instead of taking the process down (which would
+// trigger pm2 restart and drop in-flight requests).
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+});
 
 const port = process.env.PORT;
 
