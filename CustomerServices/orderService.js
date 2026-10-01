@@ -175,8 +175,8 @@ const createOrder = async (req, session) => {
     await Discount.updateOne({ code: couponCode }, { $inc: { usedCount: 1 } });
   }
 
-  const topic = `entity_${entityDetails._id}`; // always prefix with a letter to avoid numeric-only topic names
-  console.log({ topic });
+  // const topic = `entity_${entityDetails._id}`; // always prefix with a letter to avoid numeric-only topic names
+  // console.log({ topic });
 
   // sendFirebaseNotification({
   //   topic: topic,
