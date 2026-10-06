@@ -249,12 +249,16 @@ app.use("/api/orders", orderController);
 app.use("/api/wallee", WalleeController);
 app.use("/api/admins", adminController);
 
+// Platform fee is one global flat CHF value, kept identical on every Admin
+// document (see Admin/services.js platformmFees). Awaited before listen below.
 const preloadPlatformFees = async () => {
-  const admin = await Admin.findOne({ isAdmin: true }).lean();
-  global.PLATFORM_FEES = admin?.platformFees || 0;
+  try {
+    const admin = await Admin.findOne({ isAdmin: true }).lean();
+    global.PLATFORM_FEES = Number(admin?.platformFees) || 0;
+  } catch (err) {
+    console.error("Failed to preload platform fees:", err);
+  }
 };
-
-preloadPlatformFees();
 
 app.post("/api/update-menu-items", async (req, res) => {
   try {
@@ -447,6 +451,8 @@ process.on("uncaughtException", (err) => {
 
 const port = process.env.PORT;
 
-server.listen(port, () => {
-  console.log(`Server is listening at http://localhost:${port}`);
+preloadPlatformFees().finally(() => {
+  server.listen(port, () => {
+    console.log(`Server is listening at http://localhost:${port}`);
+  });
 });
