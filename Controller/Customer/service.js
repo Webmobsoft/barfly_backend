@@ -1959,7 +1959,7 @@ module.exports.updateNotificationSettings = async (req) => {
 
 module.exports.getPlatformFee = async (req) => {
   const { entityId, eventId } = req.query;
-  const raw = global.PLATFORM_FEES ?? 0;
+  const raw = Number(global.PLATFORM_FEES) || 0;
   // If stored as percentage (e.g. 5 for 5%), convert to decimal (0.05) for frontend
   const platformFee = raw > 1 ? raw / 100 : raw;
   return { platformFee };
