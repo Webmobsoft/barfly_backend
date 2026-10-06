@@ -1187,10 +1187,14 @@ module.exports.getCreatedItems = async (req) => {
   if (menuCategoryName) {
     console.log("menuCategoryName received:", menuCategoryName);
     console.log("entityId:", entityId);
+    // Escape regex metacharacters so names like "Pizza Canapa (Hanfteig)" match literally
+    const escapedCategoryName = menuCategoryName
+      .trim()
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const categories = await MenuCategory.find(
       {
         categoryName: {
-          $regex: new RegExp(`^\\s*${menuCategoryName.trim()}\\s*$`, "i"),
+          $regex: new RegExp(`^\\s*${escapedCategoryName}\\s*$`, "i"),
         },
         entityId,
       },
@@ -1240,7 +1244,7 @@ module.exports.getCreatedItems = async (req) => {
 
   console.log({ createdItems });
 
-  if (searchedId && pageNo == 1 && !menuCategoryId) {
+  if (searchedId && pageNo == 1 && !menuCategoryName) {
     const searchedIdItem = await ItemDetails.findById(searchedId)
       .sort({ _id: -1 })
       .populate({
