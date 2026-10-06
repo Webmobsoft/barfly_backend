@@ -77,6 +77,8 @@ const addAdmin = async (req) => {
     phoneNumber,
     status: STATUS.ACTIVE,
     isAdmin: true,
+    // Inherit the current global platform fee so all admins stay in sync.
+    platformFees: Number(global.PLATFORM_FEES) || 0,
   };
 
   const newAdmin = await Admin.create(adminObj);
@@ -764,20 +766,21 @@ const platformmFees = async (req) => {
       message: t("ADMIN_NOT_FOUND_ERROR", lang),
     });
   }
-  if (platformFees !== undefined && platformFees !== null && platformFees !== "") {
-    // Body may carry the fee as a string (e.g. "0.12"); keep the in-memory
-    // global numeric so every consumer (and the customer API) sees a number.
-    const fee = Number(platformFees);
-    if (!Number.isFinite(fee) || fee < 0) {
-      throwError({
-        status: STATUS_CODES.BAD_REQUEST,
-        message: t("ADMIN_PLATFORM_FEES_ADD_ERROR", lang),
-      });
-    }
-    admin.platformFees = fee;
+  // Body may carry the fee as a number or a numeric string (e.g. "0.12").
+  const isNumeric =
+    typeof platformFees === "number" ||
+    (typeof platformFees === "string" && platformFees.trim() !== "");
+  const fee = isNumeric ? Number(platformFees) : NaN;
+  if (!Number.isFinite(fee) || fee < 0) {
+    throwError({
+      status: STATUS_CODES.BAD_REQUEST,
+      message: t("ADMIN_PLATFORM_FEES_ADD_ERROR", lang),
+    });
   }
-  await admin.save();
-  global.PLATFORM_FEES = admin.platformFees;
+  // The platform fee is one global value: keep every admin document in sync so
+  // startup (app.js preloadPlatformFees) loads it no matter which admin it reads.
+  await Admin.updateMany({}, { $set: { platformFees: fee } });
+  global.PLATFORM_FEES = fee;
 };
 
 const sendEmailOtp = async (req) => {
