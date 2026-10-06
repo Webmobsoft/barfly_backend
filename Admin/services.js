@@ -764,9 +764,20 @@ const platformmFees = async (req) => {
       message: t("ADMIN_NOT_FOUND_ERROR", lang),
     });
   }
-  if (platformFees) admin.platformFees = platformFees;
+  if (platformFees !== undefined && platformFees !== null && platformFees !== "") {
+    // Body may carry the fee as a string (e.g. "0.12"); keep the in-memory
+    // global numeric so every consumer (and the customer API) sees a number.
+    const fee = Number(platformFees);
+    if (!Number.isFinite(fee) || fee < 0) {
+      throwError({
+        status: STATUS_CODES.BAD_REQUEST,
+        message: t("ADMIN_PLATFORM_FEES_ADD_ERROR", lang),
+      });
+    }
+    admin.platformFees = fee;
+  }
   await admin.save();
-  global.PLATFORM_FEES = platformFees;
+  global.PLATFORM_FEES = admin.platformFees;
 };
 
 const sendEmailOtp = async (req) => {
