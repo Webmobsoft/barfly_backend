@@ -123,11 +123,11 @@ const createWalleeTransaction = async (req) => {
     });
   }
 
-  // Get platform fees (commission percentage)
-  const platformFeesPercent = global.PLATFORM_FEES || 2; // e.g., 1 for 1%
+  // Platform fee is a flat CHF amount per order (already included in `amount`
+  // by the customer); it is the platform's commission on this transaction.
   const totalAmount = parseFloat(Number(amount).toFixed(2));
   const platformCommission = parseFloat(
-    ((totalAmount * platformFeesPercent) / 100).toFixed(2)
+    (Number(global.PLATFORM_FEES) || 0).toFixed(2)
   );
   const merchantAmount = parseFloat(
     (totalAmount - platformCommission).toFixed(2)
@@ -217,7 +217,6 @@ const createWalleeTransaction = async (req) => {
         totalAmount: totalAmount.toString(),
         platformCommission: platformCommission.toString(), // Tracked for later collection
         merchantAmount: merchantAmount.toString(),
-        platformFeesPercent: platformFeesPercent.toString(),
         paymentFlow: "MERCHANT_FULL_PAYMENT", // Indicates full payment to merchant
         entityName: entityName, // Include entity name for reference
         // paymentMethodType: paymentMethodType,
