@@ -1,5 +1,6 @@
 const nodemailer = require("nodemailer");
 const twilio = require("twilio");
+const juice = require("juice");
 
 // Alternative OAuth2 configuration (more secure)
 // const transporter = nodemailer.createTransport({
@@ -16,29 +17,35 @@ const twilio = require("twilio");
 
 // Simple Gmail configuration with app-specific password
 const transporter = nodemailer.createTransport({
-  service: 'gmail', // Use Gmail service
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: 587, // Use port 587 for TLS
-  secure: false, // Use STARTTLS
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: false,
   auth: {
     user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS, // This should be an app-specific password
+    pass: process.env.MAIL_PASS,
   },
   tls: {
-    rejectUnauthorized: false
-  }
+    rejectUnauthorized: false,
+  },
 });
 module.exports.createMail = async (mail_data) => {
   try {
     const mailOptions = {
-      from: process.env.MAIL_USER,
+      from: process.env.MAIL_FROM || process.env.MAIL_USER,
       to: mail_data.to,
       subject: mail_data.subject,
     };
 
-    // Add text or html content
+    // Add text or html content. Inline the CSS so the email renders the same in
+    // clients that strip <head><style> (Outlook) or drop <head> on forwarding.
+    // Guarded so a malformed template can never block sending — falls back to raw.
     if (mail_data.html) {
-      mailOptions.html = mail_data.html;
+      try {
+        mailOptions.html = juice(mail_data.html);
+      } catch (inlineErr) {
+        console.error("⚠️ CSS inline (juice) failed, sending raw HTML:", inlineErr.message);
+        mailOptions.html = mail_data.html;
+      }
     }
     if (mail_data.text) {
       mailOptions.text = mail_data.text;
@@ -61,16 +68,16 @@ module.exports.createMail = async (mail_data) => {
     console.log("🔄 Attempting to verify SMTP connection...");
     await transporter.verify();
     console.log("✅ SMTP connection verified successfully");
-    
+
     console.log("📧 Sending email...");
     const result = await transporter.sendMail(mailOptions);
     console.info(`✅ Email sent successfully to: ${mail_data.to}`);
     console.log("📧 Message ID:", result.messageId);
-    
+
     if (mail_data.cc) {
       console.info(`📧 CC sent to: ${mail_data.cc}`);
     }
-    
+
     transporter.close();
     return true;
   } catch (error) {
@@ -79,18 +86,20 @@ module.exports.createMail = async (mail_data) => {
       code: error.code,
       response: error.response,
       responseCode: error.responseCode,
-      command: error.command
+      command: error.command,
     });
-    
+
     // Provide helpful error messages
-    if (error.code === 'EAUTH') {
+    if (error.code === "EAUTH") {
       console.error("🔐 Authentication failed. Please check:");
       console.error("   1. Enable 2FA on your Gmail account");
       console.error("   2. Generate an app-specific password");
-      console.error("   3. Use the app-specific password in MAIL_PASS environment variable");
+      console.error(
+        "   3. Use the app-specific password in MAIL_PASS environment variable"
+      );
       console.error("   4. Make sure MAIL_USER is set to your Gmail address");
     }
-    
+
     return false;
   }
 };

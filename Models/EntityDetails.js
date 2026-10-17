@@ -29,7 +29,7 @@ const entityDetailsSchema = new Schema(
     walleeSpaceId: { type: Number },
     walleeApplicationUserId: { type: Number },
     walleeOnboardingUrl: { type: String },
-    blockedAt: { type: Date },
+    blockUnblockDate: { type: Date },
   },
   { timestamps: true }
 );

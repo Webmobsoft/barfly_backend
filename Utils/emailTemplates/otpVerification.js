@@ -26,7 +26,8 @@ const otpVerificationTemplate = (otp, purpose = "Email Update") => {
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #667eea; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 40px 30px;
             text-align: center;
         }
@@ -58,7 +59,8 @@ const otpVerificationTemplate = (otp, purpose = "Email Update") => {
             margin-bottom: 30px;
         }
         .otp-container {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            background-color: #f1f3f5; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             border: 2px dashed #667eea;
             border-radius: 10px;
             padding: 30px;
@@ -153,7 +155,7 @@ const otpVerificationTemplate = (otp, purpose = "Email Update") => {
             <div class="greeting">Hello,</div>
 
             <div class="message">
-                We received a request to verify your identity for <strong>${purpose}</strong> on your <strong>Countr</strong> account.
+                We received a request to verify your identity for <strong>${purpose}</strong> on your <strong>countr</strong> account.
                 Please use the One-Time Password (OTP) below to complete the verification:
             </div>
 
@@ -170,8 +172,8 @@ const otpVerificationTemplate = (otp, purpose = "Email Update") => {
 
             <div class="security-notice">
                 <p><strong>🛡️ Security Tips:</strong></p>
-                <p>• Never share this OTP with anyone, including Countr staff</p>
-                <p>• Countr will never call or text you asking for this code</p>
+                <p>• Never share this OTP with anyone, including countr staff</p>
+                <p>• countr will never call or text you asking for this code</p>
                 <p>• If you didn't request this code, please ignore this email</p>
             </div>
 
@@ -184,9 +186,9 @@ const otpVerificationTemplate = (otp, purpose = "Email Update") => {
 
         <div class="footer">
             <p>This is an automated email. Please do not reply to this message.</p>
-            <div class="brand">The Countr Team</div>
+            <div class="brand">The countr Team</div>
             <p style="margin-top: 15px; font-size: 12px; color: #999999;">
-                © ${new Date().getFullYear()} Countr. All rights reserved.
+                © ${new Date().getFullYear()} countr. All rights reserved.
             </p>
         </div>
     </div>

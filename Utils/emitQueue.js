@@ -8,9 +8,7 @@ const scheduleEmit = (event) => {
   const delay = new Date(event.from).getTime() - Date.now();
 
   if (delay > 0) {
-    console.log(
-      `Scheduling emit for event "${event.eventName}" (ID: ${event._id}) in ${delay}ms at ${event.from}`
-    );
+    // console.log(`Scheduling emit for event "${event.eventName}" (ID: ${event._id}) in ${delay}ms at ${event.from}`); // Noisy log
 
     emitEventQueue.add(
       { event },

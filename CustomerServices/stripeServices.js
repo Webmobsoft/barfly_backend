@@ -91,11 +91,7 @@ const createPaymentIntent = async (req) => {
 
     // Log account capabilities for debugging TWINT issues
     if (paymentMethodTypes.includes("twint")) {
-      console.log("Connected account capabilities:", {
-        transfers: account.capabilities?.transfers,
-        card_payments: account.capabilities?.card_payments,
-        accountId: stripeAccountId,
-      });
+      // console.log("Connected account capabilities:", {...}); // Noisy debug log
     }
   } catch (error) {
     // If it's already our custom error, re-throw it
@@ -162,13 +158,7 @@ const createPaymentIntent = async (req) => {
       );
 
       // Log checkout session details for debugging
-      console.log("TWINT Checkout Session created:", {
-        sessionId: checkoutSession.id,
-        url: checkoutSession.url,
-        paymentMethodTypes: checkoutSession.payment_method_types,
-        customerEmail: checkoutSessionConfig.customer_email || "not provided",
-        connectedAccountId: stripeAccountId,
-      });
+      // console.log("TWINT Checkout Session created:", {...}); // Noisy debug log
 
       // Store checkout session info in database
       await StripeModel.create({
@@ -391,7 +381,7 @@ const confirmPaymentIntent = async (req) => {
       payment_method: paymentMethodId,
     });
 
-    console.log("Stripe payment intent confirmed:", paymentIntent.id);
+    // console.log("Stripe payment intent confirmed:", paymentIntent.id); // Noisy debug log
 
     return paymentIntent;
   } catch (error) {

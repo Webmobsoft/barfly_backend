@@ -13,7 +13,7 @@ mongoose
     useUnifiedTopology: true,
     w: "majority",
   })
-  .then(() => console.log("Db Connected Successfully"))
+  .then(() => console.log("Db Connected Successfully to:", process.env.DB_NAME))
   .catch((e) => {
     console.error(e);
     throw new Error("Error Occurred!");

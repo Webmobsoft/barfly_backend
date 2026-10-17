@@ -5,16 +5,9 @@ const SECRET_KEY = "BARFLY@WEBMOB456";
 const Event = require("../Models/Event");
 const { STATUS, ROLES, STATUS_CODES } = require("./globalConstants");
 const Discount = require("../Models/Discount");
+const User = require("../Models/User");
 const crypto = require("crypto");
 const { messaging, messagingPlus } = require("../firebaseAdmin");
-const CustomerOrderReport = require("../Models/CustomerOrderReport");
-const PDFDocument = require("pdfkit");
-const EntityDetails = require("../Models/EntityDetails");
-const {
-  uploadBufferToS3,
-  generatePresignedUrl,
-} = require("../Controller/aws-service");
-const User = require("../Models/User");
 const { getLanguageFromRequest, t } = require("./translator");
 const throwError = require("./throwError");
 const hashPassword = (password) => {
@@ -45,7 +38,7 @@ const getJwtToken = (user, isUser = false) => {
     role: user.role,
     email: user.email,
     contactNumber: user.contactNumber,
-    isAdmin: user.isAdmin,
+    isAdmin: user.isAdmin === true,
     countrTag: user.countrTag,
   };
   if (!isUser) {
@@ -211,7 +204,7 @@ const decrypt = (encryptedText) => {
   const decipher = crypto.createDecipheriv(
     algorithm,
     Buffer.from(secretKey),
-    Buffer.from(ivHex, "hex")
+    Buffer.from(ivHex, "hex"),
   );
   let decrypted = decipher.update(encrypted, "hex", "utf8");
   decrypted += decipher.final("utf8");
@@ -316,6 +309,7 @@ const sendFirebaseNotification = async ({
   data = {},
   topic = "",
   showNotification = true,
+  alertSound = false,
 }) => {
   try {
     if (!topic) {
@@ -348,23 +342,51 @@ const sendFirebaseNotification = async ({
           : undefined,
       },
 
-      apns: {
-        payload: {
-          aps: {
-            content_available: true,
-            category: "FLUTTER_NOTIFICATION_CLICK",
-            mutableContent: 1,
-            alert: showNotification
-              ? {
+      apns: showNotification
+        ? {
+            headers: {
+              "apns-priority": "10",
+            },
+            payload: {
+              aps: {
+                alert: {
                   title,
                   body,
-                }
-              : undefined,
+                },
+                category: "FLUTTER_NOTIFICATION_CLICK",
+                mutableContent: 1,
+                content_available: true,
+              },
+            },
+          }
+        : {
+            headers: {
+              "apns-push-type": "background",
+              "apns-priority": "5",
+            },
+            payload: {
+              aps: {
+                "content-available": 1,
+              },
+            },
           },
-        },
-      },
       topic: topic,
     };
+
+    // User-facing alerts (order status / cancelled / offline order) must play a
+    // sound and vibrate. Silent data refreshes must never pass alertSound.
+    // "order_alert" is the "ding" bundled in both the Customer and Countr Plus apps
+    // (Android res/raw/order_alert.wav, iOS order_alert.caf). App builds without the
+    // file fall back to the default sound.
+    if (alertSound && showNotification) {
+      Object.assign(payload.android.notification, {
+        channelId: "order_alert_chime",
+        sound: "order_alert",
+        defaultVibrateTimings: true,
+      });
+      payload.apns.headers["apns-push-type"] = "alert";
+      payload.apns.payload.aps.sound = "order_alert.caf";
+    }
 
     await messagingPlus.send(payload);
     await messaging.send(payload);
@@ -374,249 +396,11 @@ const sendFirebaseNotification = async ({
   }
 };
 
-const genrateCustomerOrderReport = async (req) => {
-  const { userId, entityId, orders, mode = "Online" } = req;
-  const doc = new PDFDocument({ size: [595, 842] });
-  const buffers = [];
-  const currentUser = await User.findById(userId).select("email fullName");
+const {
+  genrateCustomerOrderReport,
+} = require("../PdfServices/customerOrderReport");
 
-  doc.on("data", (chunk) => buffers.push(chunk));
-  const finished = new Promise((resolve, reject) => {
-    doc.on("end", async () => {
-      try {
-        const pdfBuffer = Buffer.concat(buffers);
-        const timestamp = Date.now();
-        const fileKey = `orders/${userId}/customer_trades_${timestamp}.pdf`;
-        const filename = `customer_trades_${timestamp}.pdf`;
-
-        const s3Upload = await uploadBufferToS3(pdfBuffer, fileKey);
-        const signedUrl = generatePresignedUrl(fileKey);
-        console.log("PDF uploaded to S3:", signedUrl);
-
-        await CustomerOrderReport.create({
-          userId,
-          entityId,
-          date: new Date(),
-          filename: filename,
-          filePath: s3Upload.Location,
-        });
-
-        // Get user's email to send the PDF
-        const User = require("../Models/User");
-        const { createMail } = require("./mailer");
-
-        console.log("User found:", user);
-
-        if (user && user.email) {
-          // Send email with PDF attachment
-          const mailData = {
-            to: user.email, // Send to actual user email
-            subject: "Your Order Report",
-            text: `Dear ${
-              user.fullName || "Customer"
-            },\n\nPlease find your order report attached.\n\nThank you for using our service!\n\nBest regards,\nCountr App Team`,
-            attachments: [
-              {
-                filename: filename,
-                content: pdfBuffer,
-                contentType: "application/pdf",
-              },
-            ],
-          };
-
-          try {
-            const emailResult = await createMail(mailData);
-            if (emailResult) {
-              console.log(
-                `✅ Order report email sent successfully to: ${user.email}`
-              );
-            } else {
-              console.warn(
-                `⚠️ Failed to send email to: ${user.email}, but PDF was generated successfully`
-              );
-            }
-          } catch (emailError) {
-            console.error(
-              "❌ Error sending order report email:",
-              emailError.message
-            );
-            console.warn(
-              "⚠️ Email failed but PDF generation completed successfully"
-            );
-            // Don't throw error - PDF generation should still succeed
-          }
-        } else {
-          console.warn("⚠️ User email not found, skipping email notification");
-          console.log(
-            "📄 PDF generated successfully without email notification"
-          );
-        }
-
-        resolve(signedUrl);
-      } catch (uploadError) {
-        console.error("S3 or DB error:", uploadError);
-        reject(uploadError);
-      }
-    });
-
-    doc.on("error", reject);
-  });
-
-  doc.registerFont(
-    "Helveticaneue-Light",
-    "Assets/fonts/HelveticaNeueLight.otf"
-  );
-  doc.registerFont(
-    "Helveticaneue-Medium",
-    "Assets/fonts/HelveticaNeueMedium.otf"
-  );
-  doc.registerFont(
-    "Helveticaneue-Regular",
-    "Assets/fonts/HelveticaNeue Regular.ttf"
-  );
-
-  const logoPath = "Assets/countr_logo.png";
-  const pageWidth = doc.page.width;
-  const leftMargin = 25;
-  const rightMargin = 20;
-  const topMargin = 30;
-
-  doc.image(logoPath, leftMargin, topMargin, { width: 250, height: 70 });
-
-  doc
-    .fontSize(12)
-    .font("Helvetica-Bold")
-    .text(
-      "countr app",
-      pageWidth - leftMargin - rightMargin - 130,
-      topMargin + 25
-    )
-    .fontSize(11)
-    .font("Helveticaneue-Light")
-    .text("www.countr-app.ch", pageWidth - leftMargin - rightMargin - 130)
-    .text("info@countr-app.ch", pageWidth - leftMargin - rightMargin - 130);
-
-  const user = await EntityDetails.findOne({ _id: entityId }).populate({
-    path: "userId",
-    select: "fullName",
-    model: "User",
-  });
-  console.log("User details found:", user);
-
-  // Generate date range for the report
-  const currentDate = new Date();
-  const fromDate = currentDate.toLocaleDateString();
-  const toDate = currentDate.toLocaleDateString();
-
-  doc
-    .fontSize(12)
-    .font("Helvetica-Bold")
-    .text(user?.entityName || "[Restaurant Name]", leftMargin + 12, doc.y + 50)
-    .font("Helveticaneue-Light")
-    .text(
-      currentUser?.fullName || "[Account Owner Name]",
-      leftMargin + 12,
-      doc.y + 4
-    )
-    .text(
-      `${user?.zipcode || "ZIP"} ${user?.city || "City"}`,
-      leftMargin + 12,
-      doc.y + 4
-    );
-
-  doc
-    .fontSize(12)
-    .font("Helveticaneue-Light")
-    .text(
-      `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-      leftMargin + 12,
-      doc.y + 30
-    )
-    .fontSize(12)
-    .text(`Zahlungsmethode: ${mode}`, leftMargin + 12, doc.y + 3)
-    .text(`${currentUser.email}`, leftMargin + 350, doc.y - 19.5);
-
-  doc
-    .moveTo(leftMargin + 12, doc.y + 20)
-    .lineTo(pageWidth - rightMargin - 40, doc.y + 20)
-    .lineWidth(1)
-    .strokeColor("#000000")
-    .stroke();
-
-  doc
-    .fontSize(12)
-    .font("Helvetica-Bold")
-    .text("Quantity", leftMargin + 12, doc.y + 40)
-    .text("Item name", leftMargin + 150, doc.y - 15)
-    .text("Item price", leftMargin + 250, doc.y - 15)
-    .text(
-      "Total Price[CHF]",
-      pageWidth - leftMargin - rightMargin - 130,
-      doc.y - 15
-    );
-
-  const totalAmount = orders.totalAmount || orders.finalAmount || 0;
-
-  // Handle both regular orders and offline orders
-  const orderItems = orders.items || [];
-
-  for (const orderItem of orderItems) {
-    // Get item details - handle both populated and non-populated cases
-    const itemId = orderItem.itemId;
-    const quantity = orderItem.quantity || 1;
-
-    // For PDF generation, we need to fetch item details if not populated
-    let itemName = "[Item name]";
-    let itemPrice = 0;
-
-    if (itemId && typeof itemId === "object" && itemId.itemName) {
-      // Item is populated
-      itemName = itemId.itemName;
-      itemPrice = itemId.price || 0;
-    } else if (itemId) {
-      // Item is not populated, need to fetch
-      const ItemDetails = require("../Models/ItemDetails");
-      try {
-        const item = await ItemDetails.findById(itemId).select(
-          "itemName price"
-        );
-        if (item) {
-          itemName = item.itemName;
-          itemPrice = item.price || 0;
-        }
-      } catch (error) {
-        console.error("Error fetching item details:", error);
-      }
-    }
-
-    const itemTotal = (itemPrice * quantity).toFixed(2);
-
-    doc
-      .fontSize(12)
-      .font("Helveticaneue-Light")
-      .text(quantity.toString(), leftMargin + 12, doc.y + 20)
-      .text(itemName, leftMargin + 150, doc.y - 15)
-      .text(`${itemPrice.toFixed(2)}`, leftMargin + 250, doc.y - 12)
-      .text(itemTotal, pageWidth - leftMargin - rightMargin - 130, doc.y - 14);
-  }
-
-  // Add total amount at the bottom
-  doc
-    .fontSize(14)
-    .font("Helvetica-Bold")
-    .text("Total Amount (including fees):", leftMargin + 190, doc.y + 30)
-    .text(
-      `${orders.finalAmount.toFixed(2)} CHF`,
-      pageWidth - leftMargin - rightMargin - 130,
-      doc.y - 16.5
-    );
-
-  doc.fillColor("#000000");
-  doc.end(); // triggers the 'end' event
-
-  return await finished;
-};
-const verifyTokenWithoutResponse = (req) => {
+const verifyTokenWithoutResponse = async (req) => {
   const token = req.headers["token"];
   const lang = getLanguageFromRequest(req);
 
@@ -626,24 +410,43 @@ const verifyTokenWithoutResponse = (req) => {
       message: t("AUTH_TOKEN_MISSING", lang),
     });
   }
-  jwt.verify(token, SECRET_KEY, (err, decoded) => {
-    if (err) {
-      throwError({
-        status: STATUS_CODES.NOT_AUTHORIZED,
-        message: t("AUTH_TOKEN_INVALID", lang),
-      });
-    }
+
+  try {
+    const decoded = jwt.verify(token, SECRET_KEY);
     req.id = decoded.id;
     req.userId = decoded.userId;
     req.role = decoded.role;
     req.email = decoded.email;
-    // req.contactNumber = decoded.contactNumber;
     req.entityName = decoded.entityName;
     req.entityId = decoded.entityId;
     req.entityType = decoded.entityType;
-    req.isAdmin = decoded.role == ROLES.ADMIN;
+    req.isAdmin = decoded.role === ROLES.ADMIN || decoded.isAdmin === true;
     req.countrTag = decoded.countrTag;
-  });
+
+    // Skip Redis check for admins (they use Admin model)
+    if (!req.isAdmin) {
+      const redisClient = require("../redis");
+      const { KEY_TYPE_PREFIXES } = require("./globalConstants");
+      const redisKey = `${KEY_TYPE_PREFIXES.USER_TOKEN}:${decoded.userId}`;
+      const sessionExists = await redisClient.get(redisKey);
+      if (!sessionExists) {
+        const user = await User.findById(decoded.userId, { status: 1 }).lean();
+        if (user?.status === STATUS.BLOCKED) {
+          throwError({
+            status: STATUS_CODES.NOT_AUTHORIZED,
+            message: t("USER_ACCOUNT_BLOCKED", lang),
+          });
+        }
+        await redisClient.set(redisKey, "1");
+      }
+    }
+  } catch (err) {
+    if (err.status) throw err;
+    throwError({
+      status: STATUS_CODES.NOT_AUTHORIZED,
+      message: t("AUTH_TOKEN_INVALID", lang),
+    });
+  }
 };
 module.exports = {
   hashPassword,

@@ -26,7 +26,8 @@ const resetPasswordTemplate = (fullName, resetLink) => {
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #667eea; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 40px 30px;
             text-align: center;
         }
@@ -64,7 +65,8 @@ const resetPasswordTemplate = (fullName, resetLink) => {
         .reset-button {
             display: inline-block;
             padding: 15px 40px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #667eea; /* Outlook fallback: gradients are ignored there */
+            background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #ffffff;
             text-decoration: none;
             border-radius: 5px;
@@ -145,7 +147,7 @@ const resetPasswordTemplate = (fullName, resetLink) => {
             <div class="greeting">Hello ${fullName},</div>
 
             <div class="message">
-                We received a request to reset your password for your <strong>Countr</strong> admin account.
+                We received a request to reset your password for your <strong>countr</strong> admin account.
                 Click the button below to create a new password:
             </div>
 
@@ -176,9 +178,9 @@ const resetPasswordTemplate = (fullName, resetLink) => {
 
         <div class="footer">
             <p>This is an automated email. Please do not reply to this message.</p>
-            <div class="brand">The Countr Team</div>
+            <div class="brand">The countr Team</div>
             <p style="margin-top: 15px; font-size: 12px; color: #999999;">
-                © ${new Date().getFullYear()} Countr. All rights reserved.
+                © ${new Date().getFullYear()} countr. All rights reserved.
             </p>
         </div>
     </div>

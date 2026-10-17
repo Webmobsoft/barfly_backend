@@ -22,7 +22,7 @@ const uploadBufferToS3 = async (buffer, key) => {
         console.error("Error uploading buffer to S3:", err);
         return reject(err); // Reject the promise with the error
       }
-      console.log(`Buffer uploaded successfully at ${data.Location}`);
+      // console.log(`Buffer uploaded successfully at ${data.Location}`); // Noisy log
       resolve(data); // Resolve the promise with the data
     });
   });
