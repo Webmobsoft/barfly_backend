@@ -5,7 +5,7 @@ mongoose
     authSource: "admin",
     dbName: process.env.DB_NAME,
     keepAlive: true,
-    poolSize: 10,
+    poolSize: 30, // create-order holds a connection for its whole transaction
     // replicaSet: process.env.DB_RS || "Cluster0-shard-0",
     useCreateIndex: true,
     useFindAndModify: false,

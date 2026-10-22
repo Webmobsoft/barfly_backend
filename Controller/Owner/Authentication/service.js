@@ -169,7 +169,7 @@ module.exports.register = async (req) => {
     contactNumber: sessionData.contactNumber,
   };
   if (password) {
-    newUser.password = hashPassword(password);
+    newUser.password = await hashPassword(password);
   }
 
   // Upload the logo first so a slow/failing S3 doesn't leave us with an
@@ -558,7 +558,7 @@ module.exports.resetPassword = async (req) => {
   }
 
   // Update password and clear reset token
-  user.password = hashPassword(newPassword.trim());
+  user.password = await hashPassword(newPassword.trim());
   await Promise.all([user.save(), redisClient.del(resetTokenKey)]);
 
   return { success: true, message: t("PASSWORD_RESET_SUCCESS", lang) };

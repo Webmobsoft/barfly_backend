@@ -10,9 +10,9 @@ const crypto = require("crypto");
 const { messaging, messagingPlus } = require("../firebaseAdmin");
 const { getLanguageFromRequest, t } = require("./translator");
 const throwError = require("./throwError");
-const hashPassword = (password) => {
-  return bcrypt.hashSync(password, 10);
-};
+// Async on purpose: hashSync blocks the event loop (~100 ms) and delays
+// every other request while a guest registers or resets a password.
+const hashPassword = (password) => bcrypt.hash(password, 10);
 
 const comparePassword = async (inputPassword, storedPassword) => {
   return bcrypt.compare(inputPassword, storedPassword);

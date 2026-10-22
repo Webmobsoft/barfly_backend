@@ -23,180 +23,284 @@ const { io } = require("../app");
 const OfflineOrders = require("../Models/OfflineOrder");
 const User = require("../Models/User");
 const { t, getLanguageFromRequest } = require("../Utils/translator");
+const ExtrasList = require("../Models/ExtrasList");
+const {
+  OrderingError,
+  ORDERING_ERRORS,
+  COUNTER_STATES,
+  SLOT_LENGTH_MINUTES,
+  getCounterState,
+  getAvailableSlots,
+  priceOrderLines,
+  resolveTimezone,
+  toCents,
+  fromCents,
+} = require("../Utils/ordering");
+const {
+  getSlotsFor,
+  nextTokenNumber,
+  lockCounterForOrder,
+} = require("./orderingService");
+
+const PICKUP_MODES = { ASAP: "asap", SLOT: "slot" };
+
+// Adds `counterName` next to the plain `counterId` (apps parse counterId as a
+// string, so it is not populated).
+// Search input is matched literally ("(" used to break the query).
+const escapeRegex = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const withCounterNames = async (orders) => {
+  const plain = orders.map((order) =>
+    typeof order?.toObject === "function" ? order.toObject() : order,
+  );
+  const ids = [
+    ...new Set(plain.map((order) => order?.counterId).filter(Boolean).map(String)),
+  ];
+  const counters = ids.length
+    ? await Counter.find({ _id: { $in: ids } }, { counterName: 1 }).lean()
+    : [];
+  const names = new Map(
+    counters.map((counter) => [String(counter._id), counter.counterName]),
+  );
+  return plain.map((order) =>
+    order ? { ...order, counterName: names.get(String(order.counterId)) || "" } : order,
+  );
+};
 
 const PAYMENT_PROCESSING_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// Turns a rule violation into an HTTP error the apps can read: a translated
+// message plus a stable `code`.
+const throwOrderingError = (error, lang) => {
+  if (error instanceof OrderingError) {
+    throwError({
+      status: STATUS_CODES.BAD_REQUEST,
+      message: t(error.code, lang, error.params),
+      code: error.code,
+      data: error.params,
+    });
+  }
+  throw error;
+};
+
+const itemBelongsToCounter = (item, counterId) => {
+  const id = String(counterId);
+  return (
+    String(item?.menuCategoryId?.counterId || "") === id ||
+    String(item?.counterId || "") === id ||
+    (item?.counterIds || []).some((value) => String(value) === id)
+  );
+};
+
+/**
+ * Body: { counterId, items: [{ itemId, quantity, note, extras: [extraId] }],
+ *   pickupMode: "asap" | "slot", pickupSlotStart (ISO, for "slot"),
+ *   isSelfPickup, tableNo, note, couponCode, walleeTransactionId }
+ * `eventId` from older app builds is ignored.
+ */
 const createOrder = async (req, session) => {
   const lang = getLanguageFromRequest(req);
   const {
     items,
-    eventId,
+    counterId: requestedCounterId,
+    pickupMode = PICKUP_MODES.ASAP,
+    pickupSlotStart,
     tableNo,
     isSelfPickup,
     note,
     couponCode,
     walleeTransactionId,
   } = req.body;
-  const itemsIds = items?.map((doc) => doc.itemId);
-  if (!itemsIds) return;
 
-  // Idempotency: if an order already exists for this Wallee transaction,
-  // return it instead of creating a duplicate. Safe for retries / double-taps.
-  if (walleeTransactionId) {
-    const existing = await Order.findOne({
-      walleeTransactionId: Number(walleeTransactionId),
-    }).session(session);
-    if (existing) {
-      return [existing];
+  try {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new OrderingError(ORDERING_ERRORS.EMPTY);
     }
-  }
 
-  const menuItems = await ItemDetails.find({ _id: { $in: itemsIds } })
-    .populate({ path: "menuCategoryId" })
-    .lean();
+    // Idempotency: if an order already exists for this Wallee transaction,
+    // return it instead of creating a duplicate. Safe for retries / double-taps.
+    if (walleeTransactionId) {
+      const existing = await Order.findOne({
+        walleeTransactionId: Number(walleeTransactionId),
+      }).session(session);
+      if (existing) {
+        return [existing];
+      }
+    }
 
-  if (!menuItems.length) {
-    throwError({
-      status: STATUS_CODES.BAD_REQUEST,
-      message: t("ORDER_ITEM_NOT_FOUND", lang),
-    });
-  }
+    const itemIds = items
+      .map((line) => line?.itemId)
+      .filter((id) => ObjectId.isValid(id));
+    const menuItems = await ItemDetails.find({ _id: { $in: itemIds } })
+      .populate({ path: "menuCategoryId" })
+      .session(session)
+      .lean();
+    if (!menuItems.length) {
+      throw new OrderingError(ORDERING_ERRORS.ITEM_NOT_FOUND);
+    }
+    const itemsById = new Map(menuItems.map((item) => [String(item._id), item]));
 
-  const itemNameMapper = {};
-  menuItems.forEach((item) => {
-    if (!item.inStock) {
+    // Older builds do not send counterId: fall back to the item's counter.
+    const counterId =
+      requestedCounterId || menuItems[0]?.menuCategoryId?.counterId;
+    if (!counterId || !ObjectId.isValid(counterId)) {
+      throw new OrderingError(ORDERING_ERRORS.COUNTER_NOT_FOUND);
+    }
+    if (!menuItems.every((item) => itemBelongsToCounter(item, counterId))) {
+      throw new OrderingError(ORDERING_ERRORS.ITEM_WRONG_COUNTER);
+    }
+
+    const counter = await Counter.findById(counterId).session(session).lean();
+    if (!counter || counter.status !== STATUS.ACTIVE) {
+      throw new OrderingError(ORDERING_ERRORS.COUNTER_NOT_FOUND);
+    }
+    const entityId = counter.entityId;
+    const entityDetails = await EntityDetails.findById(entityId)
+      .session(session)
+      .lean();
+    if (
+      !entityDetails ||
+      !entityDetails.isOpen ||
+      entityDetails.status !== STATUS.ACTIVE
+    ) {
       throwError({
         status: STATUS_CODES.BAD_REQUEST,
-        message: t("ORDER_ITEM_OUT_OF_STOCK", lang, {
-          itemName: item.itemName,
-        }),
+        message: t("ORDER_RESTAURANT_CLOSED", lang),
+        code: "ORDER_RESTAURANT_CLOSED",
       });
     }
-    itemNameMapper[`${item._id}`] = item;
-  });
 
-  let counterId;
-  let entityId;
-  let msg = "";
-  let amount = 0;
+    // Serialise orders of this counter so slot capacity cannot be overbooked.
+    await lockCounterForOrder(counter._id, session);
 
-  items.forEach((doc) => {
-    const menuItem = itemNameMapper[`${doc.itemId}`];
-    if (menuItem) {
-      entityId = menuItem?.entityId;
-      // counterId = menuItem?.menuCategoryId?.counterId || menuItems?.counterId;
-      counterId = menuItem?.menuCategoryId?.counterId;
+    const now = new Date();
+    const timezone = resolveTimezone(entityDetails.timezone);
+    const state = getCounterState({ counter, now, timezone });
 
-      // if (menuItem.availableQuantity < doc.quantity) {
-      //   msg += `${menuItem.itemName}, not in stock, Please add less item aur wait for restock.`;
-      // }
-      amount += doc.quantity * menuItem.price;
+    if (state.state === COUNTER_STATES.PAUSED) {
+      throw new OrderingError(ORDERING_ERRORS.PAUSED, {
+        pausedUntil: state.pausedUntil,
+      });
     }
-  });
 
-  if (msg) {
-    throwError({
-      status: STATUS_CODES.BAD_REQUEST,
-      message: msg
-        ? `${msg} ${t("ORDER_ITEMS_INSUFFICIENT_STOCK_SUFFIX", lang)}`
-        : t("ORDER_ITEMS_INSUFFICIENT_STOCK", lang),
+    let slotStart;
+    if (pickupMode === PICKUP_MODES.ASAP) {
+      if (!state.acceptsAsap) {
+        throw new OrderingError(
+          state.acceptsSlots
+            ? ORDERING_ERRORS.ASAP_NOT_AVAILABLE
+            : ORDERING_ERRORS.CLOSED,
+          { nextOpening: state.nextOpening },
+        );
+      }
+    } else if (pickupMode === PICKUP_MODES.SLOT) {
+      slotStart = new Date(pickupSlotStart);
+      if (Number.isNaN(slotStart.getTime())) {
+        throw new OrderingError(ORDERING_ERRORS.INVALID_PICKUP);
+      }
+      const freeSlots = await getSlotsFor(counter, { now, timezone, session });
+      const isFree = freeSlots.some(
+        (slot) => slot.start.getTime() === slotStart.getTime(),
+      );
+      if (!isFree) {
+        const exists = getAvailableSlots({ counter, now, timezone }).some(
+          (slot) => slot.start.getTime() === slotStart.getTime(),
+        );
+        throw new OrderingError(
+          exists ? ORDERING_ERRORS.SLOT_FULL : ORDERING_ERRORS.SLOT_NOT_AVAILABLE,
+          { nextOpening: state.nextOpening },
+        );
+      }
+    } else {
+      throw new OrderingError(ORDERING_ERRORS.INVALID_PICKUP);
+    }
+
+    const extrasListIds = [
+      ...new Set(
+        menuItems.flatMap((item) => (item.extrasListIds || []).map(String)),
+      ),
+    ];
+    const extrasLists = extrasListIds.length
+      ? await ExtrasList.find({
+          _id: { $in: extrasListIds },
+          entityId,
+          status: STATUS.ACTIVE,
+        })
+          .session(session)
+          .lean()
+      : [];
+    const { lines, subtotal } = priceOrderLines({
+      lines: items,
+      itemsById,
+      extrasListsById: new Map(
+        extrasLists.map((list) => [String(list._id), list]),
+      ),
     });
-  }
 
-  const entityDetails = await EntityDetails.findOne({
-    _id: entityId,
-  })
-    .populate("owner")
-    .lean();
-  if (entityDetails && !entityDetails.isOpen) {
-    throwError({
-      status: STATUS_CODES.BAD_REQUEST,
-      message: t("ORDER_RESTAURANT_CLOSED", lang),
-    });
-  }
+    const tokenNumber = await nextTokenNumber(entityId, session);
 
-  const lastOrder = await Order.find(
-    { entityId },
-    { tokenNumber: 1 },
-    { sort: { _id: -1 } },
-  ).limit(1);
-  let tokenNumber = lastOrder[0] ? lastOrder[0].tokenNumber + 1 : 1;
+    // Login tokens do not always carry the countag; the ticket needs it.
+    const countrTag =
+      req.countrTag ||
+      (await User.findById(req.userId, { countrTag: 1 }).lean())?.countrTag;
 
-  const originalAmount = amount;
-  let discountAmount = 0;
+    let discountAmount = 0;
+    if (couponCode) {
+      const couponValidation = await validateCoupon(couponCode, subtotal);
+      discountAmount = couponValidation.discountAmount;
+    }
 
-  if (couponCode) {
-    const couponValidation = await validateCoupon(couponCode, originalAmount);
-    discountAmount = couponValidation.discountAmount;
-  }
+    const platformFees = Number(global.PLATFORM_FEES) || 0;
+    const finalAmount = fromCents(
+      toCents(subtotal) - toCents(discountAmount) + toCents(platformFees),
+    );
 
-  const platformFees = global.PLATFORM_FEES || 0;
-  const finalAmount =
-    parseFloat(originalAmount) -
-    parseFloat(discountAmount) +
-    parseFloat(platformFees);
-
-  // Attach itemName + itemPrice snapshot so data survives item deletion
-  const itemsWithSnapshot = items.map((doc) => {
-    const menuItem = itemNameMapper[`${doc.itemId}`];
-    return {
-      ...doc,
-      itemName: menuItem?.itemName,
-      itemPrice: menuItem?.price,
+    const orderData = {
+      status: ORDER_STATUS.PAYMENT_PROCESSING,
+      items: lines,
+      counterId: counter._id,
+      entityId,
+      tokenNumber,
+      userId: req.userId,
+      countrTag,
+      totalAmount: subtotal,
+      discountAmount,
+      finalAmount,
+      couponCode,
+      tableNo,
+      isSelfPickup,
+      note,
+      platformFees,
+      pickupMode,
+      pickupSlotStart: slotStart,
+      pickupSlotLength: slotStart ? SLOT_LENGTH_MINUTES : undefined,
+      walleeTransactionId: walleeTransactionId
+        ? Number(walleeTransactionId)
+        : undefined,
+      // Client timezone (IANA) for rendering the receipt; read by the Wallee
+      // webhook later when the PDF is generated. Falls back to default if absent.
+      timezone: req.headers?.["timezone"] || undefined,
     };
-  });
 
-  const orderData = {
-    status: ORDER_STATUS.PAYMENT_PROCESSING,
-    items: itemsWithSnapshot,
-    counterId,
-    entityId,
-    tokenNumber,
-    userId: req.userId,
-    totalAmount: originalAmount,
-    discountAmount,
-    finalAmount,
-    couponCode,
-    eventId,
-    tableNo,
-    isSelfPickup,
-    note,
-    platformFees: global.PLATFORM_FEES,
-    walleeTransactionId: walleeTransactionId
-      ? Number(walleeTransactionId)
-      : undefined,
-    // Client timezone (IANA) for rendering the receipt; read by the Wallee
-    // webhook later when the PDF is generated. Falls back to default if absent.
-    timezone: req.headers?.["timezone"] || undefined,
-  };
+    const createdOrder = await Order.create([orderData], { session });
+    if (couponCode) {
+      await Discount.updateOne(
+        { code: couponCode },
+        { $inc: { usedCount: 1 } },
+        { session },
+      );
+    }
 
-  const createdOrder = await Order.create([orderData], { session });
-  if (couponCode) {
-    await Discount.updateOne({ code: couponCode }, { $inc: { usedCount: 1 } });
+    // Note: Socket emit "newOrder" is handled in orderController.js after transaction commits
+
+    // Owner notification and report generation are deferred until payment is confirmed
+    // via the Wallee webhook (walleeServices.js SUCCESS handler)
+
+    return createdOrder;
+  } catch (error) {
+    throwOrderingError(error, lang);
   }
-
-  // const topic = `entity_${entityDetails._id}`; // always prefix with a letter to avoid numeric-only topic names
-  // console.log({ topic });
-
-  // sendFirebaseNotification({
-  //   topic: topic,
-  //   title: "Order received",
-  //   body: "You have a new order. Tap to view.",
-  //   data: {
-  //     orderId: `${createdOrder[0]._id}`,
-  //     data: JSON.stringify(createdOrder[0]),
-  //     screen: "landing_home",
-  //     click_action: "FLUTTER_NOTIFICATION_CLICK",
-  //     topic: topic,
-  //   },
-  // });
-
-  // Note: Socket emit "newOrder" is handled in orderController.js after transaction commits
-
-  // Owner notification and report generation are deferred until payment is confirmed
-  // via the Wallee webhook (walleeServices.js SUCCESS handler)
-
-  return createdOrder;
 };
 
 const createOfflineOrder = async (req) => {
@@ -342,7 +446,10 @@ const updateStatusOfOrder = async (req) => {
     });
   }
 
-  const order = await Order.findOne({ _id: orderId });
+  // Only the restaurant the order belongs to may change its status.
+  const order = req.entityId
+    ? await Order.findOne({ _id: orderId, entityId: req.entityId })
+    : null;
 
   if (!order) {
     throwError({
@@ -784,7 +891,7 @@ const updateOfflineOrders = async (req) => {
     });
   }
 
-  const order = await OfflineOrders.findOne({ _id: orderId });
+  const order = await OfflineOrders.findOne({ _id: orderId, entityId });
 
   if (!order) {
     throwError({
@@ -872,21 +979,14 @@ const getLiveOrdersUsers = async (req) => {
 
   let searchConditions = [];
   if (searchTerm && searchTerm.trim() !== "") {
+    const pattern = { $regex: escapeRegex(searchTerm), $options: "i" };
+    const [entityIds, itemIds] = await Promise.all([
+      EntityDetails.find({ entityName: pattern }).distinct("_id"),
+      ItemDetails.find({ itemName: pattern }).distinct("_id"),
+    ]);
     searchConditions = [
-      {
-        entityId: {
-          $in: await EntityDetails.find({
-            entityName: { $regex: searchTerm, $options: "i" },
-          }).distinct("_id"),
-        },
-      },
-      {
-        "items.itemId": {
-          $in: await ItemDetails.find({
-            itemName: { $regex: searchTerm, $options: "i" },
-          }).distinct("_id"),
-        },
-      },
+      { entityId: { $in: entityIds } },
+      { "items.itemId": { $in: itemIds } },
     ];
   }
 
@@ -931,25 +1031,28 @@ const getLiveOrdersUsers = async (req) => {
       select: "entityName city image state country",
       model: "EntityDetails",
     })
-    .sort({ updatedAt: -1 });
+    .sort({ updatedAt: -1 })
+    .lean();
 
-  const updatedLiveOrders = liveOrders.map((order) => {
-    if (order.entityId && order.entityId.image) {
-      return {
-        ...order.toObject(),
-        finalAmount: order.finalAmount,
-        entityId: {
-          ...order.entityId.toObject(),
-          image: order.entityId.image.includes("X-Amz-Signature")
-            ? order.entityId.image
-            : generatePresignedUrl(order.entityId.image),
-        },
-      };
+  // One signed image URL per venue, not one per order.
+  const signedImages = new Map();
+  const signImage = (image) => {
+    if (image.includes("X-Amz-Signature")) return image;
+    if (!signedImages.has(image)) {
+      signedImages.set(image, generatePresignedUrl(image));
     }
-    return order;
-  });
+    return signedImages.get(image);
+  };
+  const updatedLiveOrders = liveOrders.map((order) =>
+    order.entityId && order.entityId.image
+      ? {
+          ...order,
+          entityId: { ...order.entityId, image: signImage(order.entityId.image) },
+        }
+      : order,
+  );
 
-  return updatedLiveOrders;
+  return withCounterNames(updatedLiveOrders);
 };
 
 const particularOrderDetails = async (req) => {
@@ -1033,6 +1136,10 @@ const particularOrderDetailsCustomer = async (req) => {
       finalAmount: 1,
       discountAmount: 1,
       platformFees: 1,
+      counterId: 1,
+      pickupMode: 1,
+      pickupSlotStart: 1,
+      pickupSlotLength: 1,
     },
   )
     .populate({
@@ -1040,6 +1147,7 @@ const particularOrderDetailsCustomer = async (req) => {
       select: "currency itemId itemName quantity isVegan price",
       model: "ItemDetails",
     })
+
     .populate({
       path: "entityId",
       select: "entityName city image",
@@ -1060,7 +1168,8 @@ const particularOrderDetailsCustomer = async (req) => {
     );
     orderDetails.finalAmount = orderDetails.finalAmount;
   }
-  return orderDetails;
+  const [withName] = await withCounterNames([orderDetails]);
+  return withName;
 };
 
 const getRestaurantOrdersAndCount = async (req) => {
@@ -1069,23 +1178,28 @@ const getRestaurantOrdersAndCount = async (req) => {
     query: { year, searchTerm },
   } = req;
 
-  const orders = await Order.find(
+  // Counted in the database (covered by the {userId, createdAt, entityId}
+  // index) instead of loading every order of the year.
+  const counts = await Order.aggregate([
     {
-      userId,
-      createdAt: {
-        $gte: new Date(`${year}-01-01T00:00:00.000Z`),
-        $lt: new Date(`${year}-12-31T23:59:59.999Z`),
+      $match: {
+        userId: new ObjectId(String(userId)),
+        createdAt: {
+          $gte: new Date(`${year}-01-01T00:00:00.000Z`),
+          $lt: new Date(`${year}-12-31T23:59:59.999Z`),
+        },
       },
     },
-    { entityId: 1 },
+    { $group: { _id: "$entityId", count: { $sum: 1 } } },
+  ]);
+
+  if (counts.length === 0) return [];
+
+  const entityOrderCount = Object.fromEntries(
+    counts
+      .filter((row) => row._id)
+      .map((row) => [String(row._id), row.count]),
   );
-
-  if (orders.length === 0) return [];
-
-  const entityOrderCount = orders.reduce((acc, order) => {
-    acc[order.entityId] = (acc[order.entityId] || 0) + 1;
-    return acc;
-  }, {});
 
   const entityIds = Object.keys(entityOrderCount);
 
@@ -1093,7 +1207,7 @@ const getRestaurantOrdersAndCount = async (req) => {
     _id: { $in: entityIds },
   };
   if (searchTerm) {
-    searchQuery.entityName = { $regex: searchTerm, $options: "i" }; // Case-insensitive search
+    searchQuery.entityName = { $regex: escapeRegex(searchTerm), $options: "i" }; // Case-insensitive search
   }
 
   const entities = await EntityDetails.find(searchQuery, {
@@ -1345,16 +1459,19 @@ const cancelOrder = async (req) => {
   const lang = getLanguageFromRequest(req);
   const { orderId } = req.body;
 
-  const order = await Order.findOne({
-    _id: orderId,
-    status: {
-      $in: [
-
-        ORDER_STATUS.WAITING,
-        ORDER_STATUS.IN_PROGRESS,
-      ],
+  // A guest can only cancel their own order, and only while it is waiting
+  // or in process. Find + cancel in one atomic step: one round trip, and the
+  // restaurant cannot mark the order ready in between. `order` is the order
+  // as it was before the cancel (as before).
+  const order = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      userId: req.userId,
+      status: { $in: [ORDER_STATUS.WAITING, ORDER_STATUS.IN_PROGRESS] },
     },
-  }).populate({
+    { $set: { status: ORDER_STATUS.CANCELLED } },
+    { new: false },
+  ).populate({
     path: "entityId",
     select: "userId fcmToken",
     model: "EntityDetails",
@@ -1366,25 +1483,6 @@ const cancelOrder = async (req) => {
       message: t("ORDER_NOT_FOUND", lang),
     });
   }
-
-  if (
-    [
-      ORDER_STATUS.READY,
-      ORDER_STATUS.COMPLETED,
-      ORDER_STATUS.CANCELLED,
-    ].includes(order.status)
-  ) {
-    throwError({
-      status: STATUS_CODES.BAD_REQUEST,
-      message: t("ORDER_CANNOT_CANCEL", lang),
-    });
-  }
-
-  await Order.updateOne(
-    { _id: orderId },
-    { $set: { status: ORDER_STATUS.CANCELLED } },
-  );
-  console.log({ id: order.entityId });
 
   // Only notify owner if the order was visible to them (not PAYMENT_PROCESSING)
   if (order.status !== ORDER_STATUS.PAYMENT_PROCESSING) {

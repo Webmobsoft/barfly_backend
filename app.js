@@ -157,6 +157,7 @@ const verifyToken = require("./Utils/verifyToken");
 const { sendFirebaseNotification } = require("./Utils/commonFunction");
 const { t, getLanguageFromRequest } = require("./Utils/translator");
 const User = require("./Models/User");
+const AppConfig = require("./Models/AppConfig");
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 // const admin = require("./firebaseConfig");
@@ -200,6 +201,8 @@ const unProtectedApis = {
   // "/api/stripe/get-stripe-accounts": true, // Commented out - using Wallee instead
   // "/webhooks": true, // Stripe webhook - Commented out
   "/api/wallee/webhook": true, // Wallee webhook
+  "/api/app-config": true,
+  "/api/customer/entities/pickup-slots": true,
 };
 
 app.use("/api/health-check", (req, res) => {
@@ -238,6 +241,11 @@ app.use(
 );
 app.use("/api/survey", require("./Controller/Owner/Feedback/controller"));
 app.use("/api/owner/restaurant", require("./Controller/Owner/controller"));
+app.use(
+  "/api/owner/restaurant",
+  require("./Controller/Owner/orderingController"),
+);
+app.use("/api/owner/restaurant", require("./Controller/Owner/menuController"));
 app.use(
   "/api/customer/auth",
   require("./Controller/Customer/Authentication/controller"),
@@ -360,18 +368,44 @@ app.post("/send-firebase-notification", async (req, res) => {
 
 app.post("/api/register-token", async (req, res) => {
   const lang = getLanguageFromRequest(req);
-  const { fcmToken } = req.body;
+  try {
+    const { fcmToken } = req.body;
 
-  if (!fcmToken) {
-    throw {
-      status: STATUS_CODES.BAD_REQUEST,
-      message: t("FCM_TOKEN_REQUIRED", lang),
-    };
+    if (!fcmToken) {
+      return res
+        .status(STATUS_CODES.BAD_REQUEST)
+        .json({ message: t("FCM_TOKEN_REQUIRED", lang) });
+    }
+
+    await User.updateOne({ _id: req.userId }, { $addToSet: { fcmToken } });
+
+    return res
+      .status(STATUS_CODES.OK)
+      .json({ message: t("FCM_TOKEN_REGISTER_SUCCESS", lang) });
+  } catch (error) {
+    console.error("Error while registering FCM token", error);
+    return res
+      .status(STATUS_CODES.SERVER_ERROR)
+      .json({ message: error.message });
   }
+});
 
-  await User.updateOne({ _id: req.userId }, { $addToSet: { fcmToken } });
-
-  return { message: t("FCM_TOKEN_REGISTER_SUCCESS", lang) };
+// Minimum app versions and store links. Apps below the minimum show a
+// full-screen "Please update". Public: called before login.
+app.get("/api/app-config", async (req, res) => {
+  try {
+    const config = await AppConfig.findOne({ key: "global" }).lean();
+    const fallback = new AppConfig().toObject();
+    return res.status(STATUS_CODES.OK).json({
+      minVersion: config?.minVersion || fallback.minVersion,
+      storeUrls: config?.storeUrls || fallback.storeUrls,
+    });
+  } catch (error) {
+    console.error("Error while fetching app config", error);
+    return res
+      .status(STATUS_CODES.SERVER_ERROR)
+      .json({ message: error.message });
+  }
 });
 
 // app.post(

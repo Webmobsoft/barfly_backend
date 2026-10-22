@@ -10,4 +10,7 @@ const favouriteSchema = new Schema(
   { timestamps: true }
 );
 
+// Indexes for the guest app's hot queries (see docs/ordering-api-1.0.3.md).
+favouriteSchema.index({ userId: 1, entityId: 1 });
+
 module.exports = mongoose.model("FavouriteEntity", favouriteSchema);

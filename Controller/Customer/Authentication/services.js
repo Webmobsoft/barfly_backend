@@ -58,7 +58,7 @@ module.exports.register = async (req) => {
     });
   }
 
-  const hashedPassword = hashPassword(password);
+  const hashedPassword = await hashPassword(password);
 
   const birthDate = new Date(dob);
   const today = new Date();
@@ -135,6 +135,8 @@ module.exports.login = async (req) => {
     email: 1,
     password: 1,
     contactNumber: 1,
+    // Goes into the token, so create-order needs no extra user lookup.
+    countrTag: 1,
   };
 
   const user = await User.findOne(
@@ -446,7 +448,7 @@ module.exports.resetPassword = async (req) => {
     });
   }
 
-  user.password = hashPassword(newPassword.trim());
+  user.password = await hashPassword(newPassword.trim());
   await Promise.all([user.save(), redisClient.del(resetTokenKey)]);
 
   return { success: true, message: t("PASSWORD_RESET_SUCCESS", lang) };

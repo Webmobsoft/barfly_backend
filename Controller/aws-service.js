@@ -38,15 +38,33 @@ const downloadBufferFromS3 = async (key) => {
   return data.Body; // returns a Buffer
 };
 
+// Signed URLs are reused while they stay valid for at least 10 more
+// minutes: signing on every request costs CPU and, because the URL changes,
+// defeats the apps' image caches (every list load re-downloads the images).
+const presignedUrlCache = new Map();
+const PRESIGNED_CACHE_MAX = 5000;
+const PRESIGNED_MIN_REMAINING_MS = 10 * 60 * 1000;
+
 const generatePresignedUrl = (key, expiresIn = 3600) => {
   if (!key) return "";
+  const cacheKey = `${expiresIn}|${key}`;
+  const cached = presignedUrlCache.get(cacheKey);
+  if (cached && cached.expiresAt - Date.now() > PRESIGNED_MIN_REMAINING_MS) {
+    return cached.url;
+  }
   const params = {
     Bucket: process.env.BUCKET_NAME, // Your S3 bucket name
     Key: key, // The name of the file in S3
     Expires: expiresIn, // Time in seconds until the URL expires (default: 1 hour)
   };
 
-  return s3.getSignedUrl("getObject", params);
+  const url = s3.getSignedUrl("getObject", params);
+  if (presignedUrlCache.size >= PRESIGNED_CACHE_MAX) presignedUrlCache.clear();
+  presignedUrlCache.set(cacheKey, {
+    url,
+    expiresAt: Date.now() + expiresIn * 1000,
+  });
+  return url;
 };
 
 // Example usage

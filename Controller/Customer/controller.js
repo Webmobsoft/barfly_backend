@@ -8,6 +8,7 @@ const {
   visitorCount,
   getEntities,
   counterList,
+  getPickupSlots,
   getCounterMenuCategory,
   getMenuItems,
   eventOpened,
@@ -211,6 +212,22 @@ router.get("/get-counter-list", async (req, res) => {
     console.error("Error occured while get counter list", error);
     return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
       message: error.message || t("COUNTER_LIST_FETCH_ERROR", lang),
+    });
+  }
+});
+
+router.get("/pickup-slots", async (req, res) => {
+  const lang = getLanguageFromRequest(req);
+  try {
+    const response = await getPickupSlots(req);
+    return res.status(STATUS_CODES.OK).json({
+      message: t("PICKUP_SLOTS_FETCH_SUCCESS", lang),
+      ...response,
+    });
+  } catch (error) {
+    console.error("Error while fetching pickup slots", error);
+    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
+      message: error.message || t("PICKUP_SLOTS_FETCH_ERROR", lang),
     });
   }
 });

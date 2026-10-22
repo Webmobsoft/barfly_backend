@@ -3,6 +3,10 @@ const jwt = require("jsonwebtoken");
 const User = require("./Models/User");
 const { SECRET_KEY } = require("./Utils/commonFunction");
 
+// Room every guest app joins (with or without login) for counter open /
+// close / pause broadcasts.
+const PUBLIC_ROOM = "public";
+
 const verifyToken = async (token) => {
   return new Promise((resolve, reject) => {
     jwt.verify(token, SECRET_KEY, (err, decoded) => {
@@ -16,8 +20,14 @@ const orderSocket = async (io) => {
   io.on("connection", async (socket) => {
     const token =
       socket.handshake.headers.token || socket.handshake.query.token;
+    const isGuestApp = socket.handshake.query.client === "customer";
 
     if (!token) {
+      // A guest who is not logged in may still follow counter states.
+      if (isGuestApp) {
+        socket.join(PUBLIC_ROOM);
+        return;
+      }
       console.log("No token provided, disconnecting...");
       return socket.disconnect();
     }
@@ -45,6 +55,10 @@ const orderSocket = async (io) => {
       if (entityId) {
         socket.join(entityId.toString());
         console.info(`User ${userId} joined room: ${entityId}`);
+      } else if (!decoded.isAdmin) {
+        // A logged-in guest: public broadcasts plus their own orders and chats.
+        socket.join(PUBLIC_ROOM);
+        socket.join(`user_${userId}`);
       }
 
       socket.on("disconnect", async () => {
@@ -59,4 +73,4 @@ const orderSocket = async (io) => {
   });
 };
 
-module.exports = { orderSocket };
+module.exports = { orderSocket, PUBLIC_ROOM };

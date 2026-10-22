@@ -44,8 +44,17 @@ const itemSchema = new Schema(
     counterId: { type: ObjectId },
     inStock: { type: Boolean, default: true },
     quantity: { type: Number },
+    // Order inside its category (ascending) and the merchant's "recommended"
+    // star. Kept equal on every counter copy of the same item.
+    sortIndex: { type: Number, default: 0 },
+    isRecommended: { type: Boolean, default: false },
+    extrasListIds: [{ type: ObjectId, ref: "ExtrasList" }],
   },
   { timestamps: true, minimize: false }
 );
+
+// Indexes for the guest app's hot queries (see docs/ordering-api-1.0.3.md).
+itemSchema.index({ counterId: 1, inStock: 1, sortIndex: 1, _id: 1 });
+itemSchema.index({ counterIds: 1, isRecommended: 1, inStock: 1, sortIndex: 1, _id: 1 });
 
 module.exports = mongoose.model("ItemDetails", itemSchema);

@@ -34,6 +34,20 @@ const {
   verifyTokenWithoutResponse,
 } = require("../../Utils/commonFunction");
 const Location = require("./../../Models/Location");
+const ExtrasList = require("../../Models/ExtrasList");
+const {
+  COUNTER_STATES,
+  SLOT_LENGTH_MINUTES,
+  getCounterState,
+} = require("../../Utils/ordering");
+const {
+  COUNTER_STATE_FIELDS,
+  getBookedCounts,
+  getEntityTimezone,
+  getEntityStates,
+  getSlotsFor,
+  serializeState,
+} = require("../../CustomerServices/orderingService");
 const Userfeedback = require("../../Models/UserFeedback");
 const SearchLogs = require("../../Models/searchLogs");
 const Discount = require("../../Models/Discount");
@@ -45,6 +59,12 @@ const { t, getLanguageFromRequest } = require("../../Utils/translator");
 const verifyToken = require("../../Utils/verifyToken");
 const UserAppFeedback = require("../../Models/UserAppFeedback");
 
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Restaurant list for the guest home screen. "ongoing" = guests can order
+// right now (ASAP or pre-order); everything else is listed after it. Each
+// entity carries `orderingState` for its card pill (open, opens at, paused).
+// The two keys keep their pre-1.0.3 names so older builds still read them.
 module.exports.getEntities = async (req) => {
   const {
     limit = 30,
@@ -53,8 +73,6 @@ module.exports.getEntities = async (req) => {
     isNewlyAdded,
     isPopular,
   } = req.query;
-  const now = new Date();
-  // console.log(req.headers["token"], "token"); // Logs sensitive token
   const token = req.headers["token"];
   if (token != null && typeof token === "string" && token.trim().length > 0) {
     await verifyTokenWithoutResponse(req);
@@ -73,209 +91,18 @@ module.exports.getEntities = async (req) => {
       favouritesIdsSet.add(id.entityId.toString());
     }
   });
-  const currentRunningEvents = await Event.find(
-    {
-      $and: [
-        { from: { $lte: now } },
-        { to: { $gte: now } },
-        { entityId: { $exists: true } },
-      ],
-    },
-    {
-      entityId: 1,
-      counterIds: 1,
-      from: 1,
-      to: 1,
-      isRepetitive: 1,
-      repetitiveDays: 1,
-      serialType: 1,
-      isAllDay: 1,
-    }
-  );
-  const nowUTC = new Date();
-  // Use UTC day for consistency with owner API
-  let currentDay = nowUTC.getUTCDay();
-  currentDay = currentDay === 0 ? 6 : currentDay - 1; // Convert to array format (0=Mon, 6=Sun)
-  let entityIds = [];
 
-  currentRunningEvents.forEach((event) => {
-    if (event.isRepetitive) {
-      // Check if repetitiveDays array is valid
-      if (
-        !Array.isArray(event.repetitiveDays) ||
-        event.repetitiveDays.length !== 7
-      ) {
-        // If invalid repetitiveDays, treat as non-repetitive (same as get-ongoing-event-details)
-        // console.log(`[getEntities] Treating repetitive event ${event._id} as non-repetitive (invalid repetitiveDays)`); // Debug log
-        // Continue to non-repetitive logic below
-      } else {
-        // Simple 3-step check for repetitive events (same as get-ongoing-event-details):
-        // 1. Overall date range
-        // 2. Daily time window
-        // 3. Day match
-
-        const eventFrom = new Date(event.from);
-        const eventTo = new Date(event.to);
-
-        // Step 1: Check overall date range
-        if (nowUTC < eventFrom || nowUTC > eventTo) {
-          return;
-        }
-
-        // Step 2: Check daily time window (only if not all day)
-        if (!event.isAllDay) {
-          // Extract hours/minutes from event start/end
-          const startHour = eventFrom.getUTCHours();
-          const startMin = eventFrom.getUTCMinutes();
-          const endHour = eventTo.getUTCHours();
-          const endMin = eventTo.getUTCMinutes();
-
-          // Create today's window
-          const todayWindowStart = new Date(
-            Date.UTC(
-              nowUTC.getUTCFullYear(),
-              nowUTC.getUTCMonth(),
-              nowUTC.getUTCDate(),
-              startHour,
-              startMin
-            )
-          );
-          let todayWindowEnd = new Date(
-            Date.UTC(
-              nowUTC.getUTCFullYear(),
-              nowUTC.getUTCMonth(),
-              nowUTC.getUTCDate(),
-              endHour,
-              endMin
-            )
-          );
-
-          // Handle midnight-spanning events
-          if (todayWindowEnd <= todayWindowStart) {
-            todayWindowEnd.setUTCDate(todayWindowEnd.getUTCDate() + 1);
-          }
-
-          // Check today's window OR yesterday's window (if event started yesterday)
-          const inTodayWindow =
-            nowUTC >= todayWindowStart && nowUTC <= todayWindowEnd;
-          const inYesterdayWindow =
-            nowUTC >= eventFrom &&
-            nowUTC < todayWindowStart &&
-            nowUTC >= new Date(todayWindowStart.getTime() - 86400000) &&
-            nowUTC <= new Date(todayWindowEnd.getTime() - 86400000);
-
-          if (!inTodayWindow && !inYesterdayWindow) {
-            return;
-          }
-        }
-
-        // Step 3: Check if today matches repetitive days
-        let currentDayForCheck = nowUTC.getUTCDay();
-        currentDayForCheck =
-          currentDayForCheck === 0 ? 6 : currentDayForCheck - 1; // Convert to array format (0=Mon, 6=Sun)
-
-        if (event.repetitiveDays[currentDayForCheck] !== 1) {
-          return;
-        }
-
-        // All checks passed for repetitive event
-        entityIds.push(event.entityId);
-        return;
-      }
-    }
-
-    // For non-repetitive events (or repetitive events with invalid repetitiveDays):
-    // All should check repetitiveDays and only appear on matching days between from and to
-    if (
-      Array.isArray(event.repetitiveDays) &&
-      event.repetitiveDays.length === 7
-    ) {
-      // Check if today matches the repetitiveDays pattern
-      let currentDayForCheck = nowUTC.getUTCDay();
-      currentDayForCheck =
-        currentDayForCheck === 0 ? 6 : currentDayForCheck - 1; // Convert to array format (0=Mon, 6=Sun)
-
-      if (event.repetitiveDays[currentDayForCheck] !== 1) {
-        // Day doesn't match, skip this event
-        return;
-      }
-    }
-
-    // For non-repetitive events, also check UTC time window
-    if (!event.isAllDay) {
-      const fromHours = new Date(event.from).getUTCHours();
-      const fromMinutes = new Date(event.from).getUTCMinutes();
-      const toHours = new Date(event.to).getUTCHours();
-      const toMinutes = new Date(event.to).getUTCMinutes();
-      const eventStartToday = new Date(
-        Date.UTC(
-          nowUTC.getUTCFullYear(),
-          nowUTC.getUTCMonth(),
-          nowUTC.getUTCDate(),
-          fromHours,
-          fromMinutes
-        )
-      );
-
-      let eventEndToday = new Date(
-        Date.UTC(
-          nowUTC.getUTCFullYear(),
-          nowUTC.getUTCMonth(),
-          nowUTC.getUTCDate(),
-          toHours,
-          toMinutes
-        )
-      );
-
-      // Handle events that span midnight
-      if (eventEndToday <= eventStartToday) {
-        eventEndToday.setUTCDate(eventEndToday.getUTCDate() + 1);
-      }
-
-      // Check if event spans multiple days - if so, use actual from/to dates
-      const eventFromDate = new Date(event.from);
-      const eventToDate = new Date(event.to);
-      const daysDiff = Math.floor(
-        (eventToDate.getTime() - eventFromDate.getTime()) /
-          (1000 * 60 * 60 * 24)
-      );
-
-      if (daysDiff > 0) {
-        // Multi-day event: check if current time is within the actual from/to range
-        if (!(nowUTC >= eventFromDate && nowUTC <= eventToDate)) {
-          return;
-        }
-      } else {
-        // Single day event: check UTC time window
-        if (!(nowUTC >= eventStartToday && nowUTC <= eventEndToday)) {
-          return;
-        }
-      }
-    }
-    // If isAllDay is true, skip time window check (event is active all day)
-
-    entityIds.push(event.entityId);
-  });
-
-  const query = {
-    _id: { $in: entityIds },
-    isOpen: true,
-    status: STATUS.ACTIVE,
-  };
-  const sort = {};
+  const query = { isOpen: true, status: STATUS.ACTIVE };
   if (isNewlyAdded) {
     const fortyEightHoursago = new Date();
     fortyEightHoursago.setHours(fortyEightHoursago.getHours() - 48);
     query.createdAt = { $gte: fortyEightHoursago };
-  } else if (isPopular) {
-    sort.views = -1;
   }
-
   if (searchTerm) {
-    query.entityName = { $regex: searchTerm, $options: "i" };
+    query.entityName = { $regex: escapeRegex(searchTerm), $options: "i" };
   }
 
-  const currentRunningEntitiesDetails1 = await EntityDetails.find(query, {
+  const entities = await EntityDetails.find(query, {
     city: 1,
     entityName: 1,
     entityType: 1,
@@ -283,99 +110,32 @@ module.exports.getEntities = async (req) => {
     image: 1,
     views: 1,
   })
-    .sort({ _id: -1 })
+    .sort(isPopular ? { views: -1, _id: -1 } : { _id: -1 })
     .lean();
-  const query2 = {
-    _id: { $nin: entityIds },
-    isOpen: true,
-    status: STATUS.ACTIVE,
-  };
 
-  if (isNewlyAdded) {
-    const fortyEightHoursago = new Date();
-    fortyEightHoursago.setHours(fortyEightHoursago.getHours() - 48);
-    query2.createdAt = { $gte: fortyEightHoursago };
-  }
+  const states = await getEntityStates(entities.map((entity) => entity._id));
 
-  currentRunningEntitiesDetails1.map((items) => {
-    if (!items.image) {
-      return items;
-    }
+  const decorated = entities.map((entity) => ({
+    ...entity,
+    image: entity.image ? generatePresignedUrl(entity.image) : entity.image,
+    isFavouriteEntity: favouritesIdsSet.has(entity._id.toString()),
+    orderingState: serializeState(states.get(entity._id.toString())),
+  }));
 
-    items.image = generatePresignedUrl(items.image);
-    return items;
-  });
+  const onlyFavourites = req.query.isFavouriteEntities == "true";
+  const visible = onlyFavourites
+    ? decorated.filter((entity) => entity.isFavouriteEntity)
+    : decorated;
 
-  const currentRunningEntitiesDetails = currentRunningEntitiesDetails1.map(
-    (entity) => {
-      if (favouritesIdsSet.has(entity._id.toString())) {
-        entity.isFavouriteEntity = true;
-      } else {
-        entity.isFavouriteEntity = false;
-      }
-      return entity;
-    }
-  );
+  const orderableNow = (entity) =>
+    entity.orderingState.state === COUNTER_STATES.OPEN ||
+    entity.orderingState.state === COUNTER_STATES.PREORDER;
 
-  if (req.query?.searchTerm && req.query.searchTerm != "") {
-    query2.entityName = { $regex: req.query.searchTerm, $options: "i" };
-  }
-
-  const remainingEntities = await EntityDetails.find(
-    query2,
-    {
-      city: 1,
-      entityName: 1,
-      entityType: 1,
-      street: 1,
-      image: 1,
-      views: 1,
-    },
-    { limit: limit, skip: skip }
-  )
-    .sort({ _id: -1 })
-    .lean();
-  remainingEntities.map((items) => {
-    if (!items.image) {
-      return items;
-    }
-
-    items.image = generatePresignedUrl(items.image);
-    return items;
-  });
-
-  const uniqueRemainingEntities = remainingEntities.map((entity) => {
-    if (favouritesIdsSet.has(entity._id.toString())) {
-      entity.isFavouriteEntity = true;
-    } else {
-      entity.isFavouriteEntity = false;
-    }
-    return entity;
-  });
-
-  let currentRunningEntitiesDetailsResponse = [];
-  let uniqueRemainingEntitiesResponse = [];
-  if (req.query.isFavouriteEntities == "true") {
-    currentRunningEntitiesDetailsResponse =
-      currentRunningEntitiesDetails.filter((entity) => {
-        return entity.isFavouriteEntity;
-      });
-    uniqueRemainingEntitiesResponse = uniqueRemainingEntities.filter(
-      (entity) => {
-        return entity.isFavouriteEntity;
-      }
-    );
-  }
-
+  const start = Number(skip) || 0;
+  const remaining = visible.filter((entity) => !orderableNow(entity));
   return {
-    ongoingEventEntities:
-      req.query.isFavouriteEntities == "true"
-        ? currentRunningEntitiesDetailsResponse
-        : currentRunningEntitiesDetails,
-    remainingEntities:
-      req.query.isFavouriteEntities == "true"
-        ? uniqueRemainingEntitiesResponse
-        : uniqueRemainingEntities,
+    ongoingEventEntities: visible.filter(orderableNow),
+    remainingEntities: remaining.slice(start, start + (Number(limit) || 30)),
   };
 };
 
@@ -632,375 +392,153 @@ module.exports.visitorCount = async (req) => {
 //   return counterList;
 // };
 
+// Counters of a restaurant with their ordering state. `isLive` (guests can
+// order now) and `eventId` (always null) stay for builds before 1.0.3.
 module.exports.counterList = async (req) => {
   const { entityId, searchTerm } = req.query;
-  const entityObjectId = ObjectId(entityId);
-  const query = { entityId: entityObjectId, status: STATUS.ACTIVE };
-
-  // console.log(`[counterList] Starting with entityId: ${entityId}, converted to ObjectId: ${entityObjectId.toString()}`); // Debug log
+  if (!ObjectId.isValid(entityId)) return [];
+  const query = { entityId: ObjectId(entityId), status: STATUS.ACTIVE };
 
   if (searchTerm) {
-    query.counterName = { $regex: searchTerm, $options: "i" };
+    query.counterName = { $regex: escapeRegex(searchTerm), $options: "i" };
   }
 
-  const counters = await Counter.find(
-    query,
-    { counterName: 1, totalTables: 1, isTableService: 1 },
-    { sort: { _id: -1 }, lean: true }
-  );
-
-  const counterIds = counters.map((counter) => ObjectId(counter._id));
-
-  const now = new Date();
-  const nowUTC = new Date();
-  // Use UTC day for consistency with owner API
-  let currentDay = nowUTC.getUTCDay();
-  currentDay = currentDay === 0 ? 6 : currentDay - 1; // Convert to array format (0=Mon, 6=Sun)
-
-  // console.log(`[counterList] Querying events with entityId: ${entityObjectId.toString()}, counterIds: ${counterIds.map((id) => id.toString()).join(", ")}`); // Debug log
-
-  const events = await Event.find(
-    {
-      counterIds: { $in: counterIds },
-      entityId: entityObjectId,
-      from: { $lte: now },
-      to: { $gte: now },
-    },
-    {
-      from: 1,
-      to: 1,
-      isRepetitive: 1,
-      repetitiveDays: 1,
-      counterIds: 1,
-      isAllDay: 1,
-      entityId: 1,
-      eventName: 1,
-    }
-  ).lean();
-
-  console.log(
-    `[counterList] Found ${events.length} events for entityId: ${entityId}`
-  );
-  // console.log(`[counterList] CounterIds being checked:`, counterIds.map((id) => id.toString())); // Debug log
-  // console.log(`[counterList] Current UTC time: ${nowUTC.toISOString()}, UTC day: ${currentDay} (0=Mon, 6=Sun)`); // Debug log
-
-  const liveCounterIds = new Set();
-  const counterToEventMap = {};
-
-  events.forEach((event) => {
-    // console.log(`[counterList] Processing event: ${event.eventName || event._id}, isRepetitive: ${event.isRepetitive}, isAllDay: ${event.isAllDay}`); // Debug log
-    // console.log(`[counterList] Event counterIds:`, event.counterIds.map((id) => id.toString())); // Debug log
-    // console.log(`[counterList] Event repetitiveDays:`, event.repetitiveDays); // Debug log
-    const eventFrom = new Date(event.from);
-    const eventTo = new Date(event.to);
-
-    if (event.isRepetitive) {
-      // console.log(`[counterList] Event is repetitive, checking...`); // Debug log
-
-      // Check if repetitiveDays array is valid
-      if (
-        !Array.isArray(event.repetitiveDays) ||
-        event.repetitiveDays.length !== 7
-      ) {
-        // If invalid repetitiveDays, treat as non-repetitive (same as get-ongoing-event-details)
-        // console.log(`[counterList] Treating repetitive event as non-repetitive (invalid repetitiveDays)`); // Debug log
-        // Continue to non-repetitive logic below
-      } else {
-        // Simple 3-step check for repetitive events (same as get-ongoing-event-details):
-        // 1. Overall date range
-        // 2. Daily time window
-        // 3. Day match
-
-        // Step 1: Check overall date range
-        if (nowUTC < eventFrom || nowUTC > eventTo) {
-          console.log(
-            `[counterList] Repetitive event overall date range check FAILED`
-          );
-          return; // Skip this event
-        }
-
-        // Step 2: Check daily time window (only if not all day)
-        if (!event.isAllDay) {
-          // Extract hours/minutes from event start/end
-          const startHour = eventFrom.getUTCHours();
-          const startMin = eventFrom.getUTCMinutes();
-          const endHour = eventTo.getUTCHours();
-          const endMin = eventTo.getUTCMinutes();
-
-          // Create today's window
-          const todayWindowStart = new Date(
-            Date.UTC(
-              nowUTC.getUTCFullYear(),
-              nowUTC.getUTCMonth(),
-              nowUTC.getUTCDate(),
-              startHour,
-              startMin
-            )
-          );
-          let todayWindowEnd = new Date(
-            Date.UTC(
-              nowUTC.getUTCFullYear(),
-              nowUTC.getUTCMonth(),
-              nowUTC.getUTCDate(),
-              endHour,
-              endMin
-            )
-          );
-
-          // Handle midnight-spanning events
-          if (todayWindowEnd <= todayWindowStart) {
-            todayWindowEnd.setUTCDate(todayWindowEnd.getUTCDate() + 1);
-          }
-
-          // Check today's window OR yesterday's window (if event started yesterday)
-          const inTodayWindow =
-            nowUTC >= todayWindowStart && nowUTC <= todayWindowEnd;
-          const inYesterdayWindow =
-            nowUTC >= eventFrom &&
-            nowUTC < todayWindowStart &&
-            nowUTC >= new Date(todayWindowStart.getTime() - 86400000) &&
-            nowUTC <= new Date(todayWindowEnd.getTime() - 86400000);
-
-          if (!inTodayWindow && !inYesterdayWindow) {
-            console.log(
-              `[counterList] Repetitive event time window check FAILED`
-            );
-            return; // Skip this event
-          }
-        }
-
-        // Step 3: Check if today matches repetitive days
-        let currentDayForCheck = nowUTC.getUTCDay();
-        currentDayForCheck =
-          currentDayForCheck === 0 ? 6 : currentDayForCheck - 1; // Convert to array format (0=Mon, 6=Sun)
-
-        if (event.repetitiveDays[currentDayForCheck] !== 1) {
-          console.log(
-            `[counterList] Repetitive event day match FAILED - currentDay: ${currentDayForCheck}, repetitiveDays[${currentDayForCheck}]: ${event.repetitiveDays[currentDayForCheck]}`
-          );
-          return; // Skip this event
-        }
-
-        // All checks passed for repetitive event
-        console.log(
-          `[counterList] Repetitive event ALL CHECKS PASSED, adding counters`
-        );
-        event.counterIds.forEach((counterId) => {
-          const counterIdStr = counterId.toString();
-          // Only add counters that are in the queried counterIds list
-          if (counterIds.some((id) => id.toString() === counterIdStr)) {
-            liveCounterIds.add(counterIdStr);
-            counterToEventMap[counterIdStr] = event._id.toString();
-            console.log(
-              `[counterList] Added counter ${counterIdStr} to liveCounterIds`
-            );
-          } else {
-            console.log(
-              `[counterList] Skipped counter ${counterIdStr} - not in queried counterIds list`
-            );
-          }
-        });
-        return; // Skip non-repetitive logic
-      }
-    }
-
-    // For non-repetitive events (or repetitive events with invalid repetitiveDays):
-    {
-      console.log(
-        `[counterList] Event is non-repetitive, checking day and time...`
-      );
-      // For non-repetitive events, check repetitiveDays and time window
-      // This handles "Weekends", "Workdays", "Custom", "One Day" types
-      if (
-        Array.isArray(event.repetitiveDays) &&
-        event.repetitiveDays.length === 7
-      ) {
-        // Check if today matches the repetitiveDays pattern
-        console.log(
-          `[counterList] Non-repetitive event has repetitiveDays, checking day match - currentDay: ${currentDay}, repetitiveDays[${currentDay}]: ${event.repetitiveDays[currentDay]}`
-        );
-        if (event.repetitiveDays[currentDay] !== 1) {
-          console.log(
-            `[counterList] Non-repetitive event day match FAILED, skipping event`
-          );
-          return; // Day doesn't match, skip this event
-        }
-        console.log(`[counterList] Non-repetitive event day match PASSED`);
-      } else {
-        console.log(
-          `[counterList] Non-repetitive event has no repetitiveDays or invalid array`
-        );
-      }
-
-      // For non-repetitive events, also check UTC time window
-      if (!event.isAllDay) {
-        const fromHours = eventFrom.getUTCHours();
-        const fromMinutes = eventFrom.getUTCMinutes();
-        const toHours = eventTo.getUTCHours();
-        const toMinutes = eventTo.getUTCMinutes();
-
-        const eventStartToday = new Date(
-          Date.UTC(
-            nowUTC.getUTCFullYear(),
-            nowUTC.getUTCMonth(),
-            nowUTC.getUTCDate(),
-            fromHours,
-            fromMinutes
-          )
-        );
-
-        let eventEndToday = new Date(
-          Date.UTC(
-            nowUTC.getUTCFullYear(),
-            nowUTC.getUTCMonth(),
-            nowUTC.getUTCDate(),
-            toHours,
-            toMinutes
-          )
-        );
-
-        // Handle events that span midnight
-        if (eventEndToday <= eventStartToday) {
-          eventEndToday.setUTCDate(eventEndToday.getUTCDate() + 1);
-        }
-
-        // Check if event spans multiple days - if so, use actual from/to dates
-        const eventFromDate = new Date(event.from);
-        const eventToDate = new Date(event.to);
-        const daysDiff = Math.floor(
-          (eventToDate.getTime() - eventFromDate.getTime()) /
-            (1000 * 60 * 60 * 24)
-        );
-
-        console.log(
-          `[counterList] Non-repetitive event time check: nowUTC=${nowUTC.toISOString()}, eventStartToday=${eventStartToday.toISOString()}, eventEndToday=${eventEndToday.toISOString()}, daysDiff=${daysDiff}`
-        );
-
-        let timeWindowPassed = false;
-        if (daysDiff > 0) {
-          // Multi-day event: check if current time is within the actual from/to range
-          if (nowUTC >= eventFromDate && nowUTC <= eventToDate) {
-            timeWindowPassed = true;
-          }
-        } else {
-          // Single day event: check UTC time window
-          if (nowUTC >= eventStartToday && nowUTC <= eventEndToday) {
-            timeWindowPassed = true;
-          }
-        }
-
-        if (timeWindowPassed) {
-          console.log(
-            `[counterList] Non-repetitive event time window PASSED, adding counters`
-          );
-          event.counterIds.forEach((counterId) => {
-            const counterIdStr = counterId.toString();
-            // Only add counters that are in the queried counterIds list
-            if (counterIds.some((id) => id.toString() === counterIdStr)) {
-              liveCounterIds.add(counterIdStr);
-              counterToEventMap[counterIdStr] = event._id.toString();
-              console.log(
-                `[counterList] Added counter ${counterIdStr} to liveCounterIds`
-              );
-            } else {
-              console.log(
-                `[counterList] Skipped counter ${counterIdStr} - not in queried counterIds list`
-              );
-            }
-          });
-        } else {
-          console.log(`[counterList] Non-repetitive event time window FAILED`);
-        }
-      } else {
-        console.log(
-          `[counterList] Non-repetitive event is all-day, adding all counters`
-        );
-        // For all-day events, add all counterIds that are in the queried list
-        event.counterIds.forEach((counterId) => {
-          const counterIdStr = counterId.toString();
-          // Only add counters that are in the queried counterIds list
-          if (counterIds.some((id) => id.toString() === counterIdStr)) {
-            liveCounterIds.add(counterIdStr);
-            counterToEventMap[counterIdStr] = event._id.toString();
-            console.log(
-              `[counterList] Added counter ${counterIdStr} to liveCounterIds (all-day event)`
-            );
-          } else {
-            console.log(
-              `[counterList] Skipped counter ${counterIdStr} - not in queried counterIds list`
-            );
-          }
-        });
-      }
-    }
-  });
+  const [counters, timezone] = await Promise.all([
+    Counter.find(query, `totalTables ${COUNTER_STATE_FIELDS}`, {
+      sort: { _id: -1 },
+      lean: true,
+    }),
+    getEntityTimezone(entityId),
+  ]);
 
   await EntityDetails.findByIdAndUpdate(entityId, { $inc: { views: 1 } });
 
-  console.log(
-    `[counterList] Final liveCounterIds:`,
-    Array.from(liveCounterIds)
-  );
-  console.log(
-    `[counterList] Total counters: ${counters.length}, Live counters: ${liveCounterIds.size}`
-  );
-
-  const counterList = counters
+  const now = new Date();
+  return counters
     .map((counter) => {
-      const idStr = counter._id.toString();
-      const isLive = liveCounterIds.has(idStr);
-      console.log(
-        `[counterList] Counter ${counter.counterName} (${idStr}): isLive=${isLive}`
+      const orderingState = serializeState(
+        getCounterState({ counter, now, timezone }),
       );
       return {
-        ...counter,
-        isLive: isLive,
-        eventId: counterToEventMap[idStr] || null,
+        _id: counter._id,
+        counterName: counter.counterName,
+        totalTables: counter.totalTables,
+        isTableService: counter.isTableService,
+        isSelfPickUp: counter.isSelfPickUp,
+        isLive: orderingState.acceptsAsap || orderingState.acceptsSlots,
+        eventId: null,
+        orderingState,
       };
     })
     .sort((a, b) => b.isLive - a.isLive);
-
-  return counterList;
 };
 
+// Free 15-minute pickup windows of a counter for the checkout sheet.
+module.exports.getPickupSlots = async (req) => {
+  const { counterId } = req.query;
+  if (!ObjectId.isValid(counterId)) return { orderingState: null, slots: [] };
+  const now = new Date();
+  // The booked-slot count only needs the counter id, so it runs while the
+  // counter is loaded instead of after it.
+  const bookedCountsPromise = getBookedCounts({ counterId, now });
+  const counter = await Counter.findById(counterId, COUNTER_STATE_FIELDS).lean();
+  if (!counter) {
+    await bookedCountsPromise.catch(() => {});
+    return { orderingState: null, slots: [] };
+  }
+
+  const [timezone, bookedCounts] = await Promise.all([
+    getEntityTimezone(counter.entityId),
+    bookedCountsPromise,
+  ]);
+  const slots = await getSlotsFor(counter, { now, timezone, bookedCounts });
+  return {
+    orderingState: serializeState(getCounterState({ counter, now, timezone })),
+    slotLengthMinutes: SLOT_LENGTH_MINUTES,
+    slots: slots.map((slot) => ({
+      start: slot.start,
+      end: slot.end,
+      remaining: slot.remaining,
+    })),
+  };
+};
+
+// Categories of a counter in the owner's menu order.
 module.exports.getCounterMenuCategory = async (req) => {
   const { counterId, searchTerm } = req.query;
 
-  const query = {
-    ...(counterId
-      ? { counterId }
-      : { counterId: { $exists: true, $ne: null } }),
-  };
+  // Without a counter this used to return the categories of every venue (a
+  // full scan); the apps always send one.
+  if (!counterId) return [];
+  const query = { counterId };
   if (searchTerm) {
-    query.name = { $regex: searchTerm, $options: "i" };
+    query.categoryName = { $regex: escapeRegex(searchTerm), $options: "i" };
   }
 
-  return await MenuCategory.find(query).lean();
+  return await MenuCategory.find(query).sort({ sortIndex: 1, _id: 1 }).lean();
 };
 
+// The extras lists of each item, as guests may pick them: only lists that
+// still exist, only extras that are switched on.
+const attachExtrasLists = async (entityId, items) => {
+  const listIds = [
+    ...new Set(items.flatMap((item) => (item.extrasListIds || []).map(String))),
+  ];
+  const lists = listIds.length
+    ? await ExtrasList.find({
+        _id: { $in: listIds },
+        entityId,
+        status: STATUS.ACTIVE,
+      }).lean()
+    : [];
+  const byId = new Map(lists.map((list) => [String(list._id), list]));
+  return items.map((item) => ({
+    ...item,
+    extrasLists: (item.extrasListIds || [])
+      .map((id) => byId.get(String(id)))
+      .filter(Boolean)
+      .map((list) => ({
+        _id: list._id,
+        name: list.name,
+        extras: (list.extras || []).filter((extra) => extra.available !== false),
+      }))
+      .filter((list) => list.extras.length > 0),
+  }));
+};
+
+// Items of one category, in the owner's order. Sold-out items are not shown
+// to guests at all.
 module.exports.getMenuItems = async (req) => {
   let { menuCategoryId, searchTerm, counterId, entityId } = req.query;
 
-  let filter = { counterId: counterId, entityId };
+  let filter = { counterId: counterId, entityId, inStock: true };
 
   if (searchTerm && searchTerm.trim()) {
-    filter.itemName = { $regex: searchTerm, $options: "i" };
+    filter.itemName = { $regex: escapeRegex(searchTerm.trim()), $options: "i" };
   }
-  const menuCategory = await MenuCategory.find({ _id: menuCategoryId });
-  if (!menuCategory || menuCategory.length === 0) {
+  if (!ObjectId.isValid(menuCategoryId)) return [];
+  const menuCategory = await MenuCategory.findById(menuCategoryId, {
+    categoryName: 1,
+    entityId: 1,
+  }).lean();
+  if (!menuCategory) {
     return [];
   }
-  const categoryName = menuCategory[0].categoryName;
-  const menuItems1 = await ItemDetails.find(filter)
+  const categoryName = menuCategory.categoryName;
+  if (categoryName) {
+    // Items of every category of this venue with the same name (the menu
+    // groups categories by name). Filtering in the query instead of loading
+    // the whole counter menu and filtering in JS.
+    const categoryIds = await MenuCategory.find({
+      entityId: entityId || menuCategory.entityId,
+      categoryName,
+    }).distinct("_id");
+    filter.menuCategoryId = { $in: categoryIds };
+  }
+  const menuItems = await ItemDetails.find(filter)
+    .sort({ sortIndex: 1, _id: 1 })
     .populate("menuCategoryId")
     .lean();
-
-  // Now filter by categoryName manually (because it's in a populated field)
-  const menuItems = categoryName
-    ? menuItems1.filter(
-        (item) => item.menuCategoryId?.categoryName === categoryName
-      )
-    : menuItems1;
 
   const menuItemsResp = menuItems.reduce((acc, menuItem) => {
     let itemDetails = menuItem.item;
@@ -1013,9 +551,10 @@ module.exports.getMenuItems = async (req) => {
     });
     return acc;
   }, []);
-  return menuItemsResp;
+  return attachExtrasLists(entityId, menuItemsResp);
 };
 
+// The items the merchant starred, in menu order (category, then item).
 module.exports.getRecommendedItems = async (req) => {
   const { entityId, counterId, searchTerm } = req.query;
 
@@ -1024,30 +563,41 @@ module.exports.getRecommendedItems = async (req) => {
     return [];
   }
 
-  const query = { entityId, counterIds: counterId };
+  const query = {
+    entityId,
+    counterIds: counterId,
+    isRecommended: true,
+    inStock: true,
+  };
 
   if (searchTerm) {
-    query.itemName = { $regex: searchTerm, $options: "i" };
+    query.itemName = { $regex: escapeRegex(searchTerm), $options: "i" };
   }
 
-  const allItems = await ItemDetails.find(query)
-    .populate("menuCategoryId")
-    .lean();
+  const allItems = (
+    await ItemDetails.find(query)
+      .sort({ sortIndex: 1, _id: 1 })
+      .populate("menuCategoryId")
+      .lean()
+  ).sort(
+    (a, b) =>
+      (a.menuCategoryId?.sortIndex || 0) - (b.menuCategoryId?.sortIndex || 0)
+  );
 
-  const counterItemMap = {};
+  const counterItemMap = new Map();
 
   allItems.forEach((item) => {
     if (item.menuCategoryId && item.menuCategoryId.counterId == counterId) {
       item.image = generatePresignedUrl(item.image);
       const counterKey = `${item.counterId}_${item.itemName}`;
 
-      if (!counterItemMap[counterKey]) {
-        counterItemMap[counterKey] = item;
+      if (!counterItemMap.has(counterKey)) {
+        counterItemMap.set(counterKey, item);
       }
     }
   });
 
-  return Object.values(counterItemMap).slice(0, 2);
+  return attachExtrasLists(entityId, [...counterItemMap.values()]);
 };
 
 module.exports.addExistingItemToMenu = async (req) => {

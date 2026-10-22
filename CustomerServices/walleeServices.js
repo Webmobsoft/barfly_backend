@@ -73,15 +73,16 @@ const createWalleeTransaction = async (req) => {
   const lang = getLanguageFromRequest(req);
   const {
     userId: reqUserId,
-    body: { amount, currency, eventId, orderId },
+    body: { currency = "CHF", orderId },
     email,
   } = req;
 
   // Use email from request body if provided, otherwise use from JWT token
   const customerEmail = req.body.email || email;
 
-  // Validate required fields
-  if (!amount || !currency || !eventId) {
+  // The amount and the merchant come from the order, never from the app.
+  // Older builds also send `amount` and `eventId`; both are ignored.
+  if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
     throwError({
       status: STATUS_CODES.BAD_REQUEST,
       message: t("WALLEE_MISSING_REQUIRED_FIELDS", lang),
@@ -101,33 +102,30 @@ const createWalleeTransaction = async (req) => {
     });
   }
 
-  // Fetch event details with entity information
-  const event = await Event.findById(eventId).populate({
+  const order = await Order.findOne({ _id: orderId, userId: reqUserId }).populate({
     path: "entityId",
-    select: "walleeSpaceId walleeLinkedAccountId entityName _id",
+    select: "walleeSpaceId entityName _id",
   });
 
-  if (!event) {
+  if (!order || !order.entityId) {
     throwError({
       status: STATUS_CODES.BAD_REQUEST,
-      message: t("EVENT_NOT_FOUND", lang),
+      message: t("WALLEE_ORDER_NOT_FOUND", lang),
     });
   }
 
-  if (!event.entityId) {
-    console.error("Event found but entityId is missing:", eventId);
+  if (order.status !== ORDER_STATUS.PAYMENT_PROCESSING) {
     throwError({
       status: STATUS_CODES.BAD_REQUEST,
-      message:
-        t("EVENT_NOT_FOUND", lang) + " - Entity not associated with event",
+      message: t("WALLEE_ORDER_NOT_PAYABLE", lang),
     });
   }
 
-  // Platform fee is a flat CHF amount per order (already included in `amount`
-  // by the customer); it is the platform's commission on this transaction.
-  const totalAmount = parseFloat(Number(amount).toFixed(2));
+  // Platform fee is a flat CHF amount per order (already included in the
+  // order's finalAmount); it is the platform's commission on this transaction.
+  const totalAmount = parseFloat(Number(order.finalAmount).toFixed(2));
   const platformCommission = parseFloat(
-    (Number(global.PLATFORM_FEES) || 0).toFixed(2)
+    (Number(order.platformFees) || 0).toFixed(2)
   );
   const merchantAmount = parseFloat(
     (totalAmount - platformCommission).toFixed(2)
@@ -136,9 +134,11 @@ const createWalleeTransaction = async (req) => {
   // IMPORTANT: Process payment in MERCHANT'S space
   // In this model, each merchant owns their own Wallee space
   // Full payment goes directly to merchant's space, commission is tracked separately
-  const merchantSpaceId = event.entityId?.walleeSpaceId;
-  const entityId = event.entityId._id;
-  const entityName = event.entityId?.entityName || "Unknown Entity";
+  const merchantSpaceId = order.entityId?.walleeSpaceId;
+  const entityId = order.entityId._id;
+  const entityName = order.entityId?.entityName || "Unknown Entity";
+  // Kept in metadata only for orders created by older builds.
+  const eventId = order.eventId ? order.eventId.toString() : undefined;
 
   // Validate merchant Space ID exists and is valid
   if (!merchantSpaceId) {
@@ -169,9 +169,9 @@ const createWalleeTransaction = async (req) => {
     // Full amount goes to merchant (they receive $100, commission tracked separately)
     const lineItems = [
       {
-        name: `Payment for ${event.entityId.entityName || "Order"}`,
-        uniqueId: `order-${reqUserId}-${eventId}-${Date.now()}`,
-        sku: `event-${eventId}`,
+        name: `Payment for ${entityName}`,
+        uniqueId: `order-${orderId}-${Date.now()}`,
+        sku: `order-${order.tokenNumber}`,
         quantity: 1,
         amountIncludingTax: totalAmount, // already rounded to 2 decimal places
         type: "PRODUCT",
@@ -210,8 +210,8 @@ const createWalleeTransaction = async (req) => {
       }),
       metaData: {
         userId: reqUserId,
-        eventId: eventId,
-        orderId: orderId || undefined,
+        eventId,
+        orderId: orderId.toString(),
         entityId: entityId.toString(), // Use validated entityId
         merchantSpaceId: merchantSpaceIdNumber.toString(), // Use validated spaceId number
         totalAmount: totalAmount.toString(),
@@ -221,8 +221,8 @@ const createWalleeTransaction = async (req) => {
         entityName: entityName, // Include entity name for reference
         // paymentMethodType: paymentMethodType,
       },
-      successUrl: `countr://payment/success?eventId=${eventId}&userId=${reqUserId}`,
-      failedUrl: `countr://payment/cancel?eventId=${eventId}&userId=${reqUserId}`,
+      successUrl: `countr://payment/success?orderId=${orderId}&userId=${reqUserId}`,
+      failedUrl: `countr://payment/cancel?orderId=${orderId}&userId=${reqUserId}`,
     };
 
     const transaction = await transactionsService.postPaymentTransactions({
@@ -264,6 +264,11 @@ const createWalleeTransaction = async (req) => {
       );
     }
 
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { walleeTransactionId: transaction.id } }
+    );
+
     return {
       type: "payment_page",
       url: paymentPageUrl,
@@ -287,7 +292,7 @@ const createWalleeTransaction = async (req) => {
  */
 const getWalleeTransactionStatus = async (req) => {
   const lang = getLanguageFromRequest(req);
-  const { transactionId, entityId, eventId } = req.query;
+  const { transactionId, entityId, eventId, orderId } = req.query;
 
   if (!transactionId) {
     throwError({
@@ -309,6 +314,25 @@ const getWalleeTransactionStatus = async (req) => {
       candidateSpaces.push(n);
     }
   };
+
+  // Primary for current builds: the order -> its entity's space, the same
+  // chain create-payment uses.
+  if (orderId && mongoose.Types.ObjectId.isValid(orderId)) {
+    try {
+      const order = await Order.findById(orderId, { entityId: 1 }).populate({
+        path: "entityId",
+        select: "walleeSpaceId",
+      });
+      if (order?.entityId?.walleeSpaceId) {
+        pushSpace(order.entityId.walleeSpaceId);
+      }
+    } catch (err) {
+      console.error(
+        "Error resolving space from orderId for transaction status:",
+        err.message
+      );
+    }
+  }
 
   if (eventId) {
     try {

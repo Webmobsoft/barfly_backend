@@ -56,6 +56,8 @@ router.post("/create-order", async (req, res) => {
     console.error("Error while adding order", error);
     return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
       message: error.message || t("ORDER_CREATE_ERROR", lang),
+      ...(error.code ? { code: error.code } : {}),
+      ...(error.data ? { data: error.data } : {}),
     });
   } finally {
     session.endSession();

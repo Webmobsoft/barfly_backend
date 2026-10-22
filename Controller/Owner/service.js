@@ -113,6 +113,14 @@ module.exports.createCounter = async (req) => {
     (_, i) => String(Number(tableFrom) + i)
   );
 
+  // A new counter starts with the opening hours of the first counter.
+  const firstCounter = await Counter.findOne(
+    { entityId: req.entityId, status: STATUS.ACTIVE },
+    { openingHours: 1, prepTimeMinutes: 1 }
+  )
+    .sort({ createdAt: 1 })
+    .lean();
+
   const newCounter = await Counter.create({
     counterName,
     ownerId: req.userId,
@@ -122,28 +130,39 @@ module.exports.createCounter = async (req) => {
     status: STATUS.ACTIVE,
     tableCount: tableNumbers,
     tableSectionName,
+    ...(firstCounter?.openingHours?.length
+      ? {
+          openingHours: firstCounter.openingHours.map((day) => ({
+            day: day.day,
+            enabled: day.enabled,
+            blocks: (day.blocks || []).map(({ _id, ...block }) => block),
+          })),
+          prepTimeMinutes: firstCounter.prepTimeMinutes,
+        }
+      : {}),
   });
 
   const categoryList = await MenuCategory.find({
     entityId: req.entityId,
-  }).select("categoryName nutritionType");
+  }).select("categoryName nutritionType sortIndex");
 
   const uniqueCategoriesMap = new Map();
 
   // Use a Map to ensure uniqueness based on categoryName
   for (const item of categoryList) {
     if (!uniqueCategoriesMap.has(item.categoryName)) {
-      uniqueCategoriesMap.set(item.categoryName, item.nutritionType);
+      uniqueCategoriesMap.set(item.categoryName, item);
     }
   }
 
   // Now iterate and create new categories
-  for (const [categoryName, nutritionType] of uniqueCategoriesMap.entries()) {
+  for (const [categoryName, category] of uniqueCategoriesMap.entries()) {
     await MenuCategory.create({
       counterId: newCounter._id,
       entityId: req.entityId,
       categoryName,
-      nutritionType,
+      nutritionType: category.nutritionType,
+      sortIndex: category.sortIndex || 0,
     });
   }
 
@@ -315,13 +334,23 @@ module.exports.createCounterMenuCategory = async (req) => {
     }
   }
 
+  // New categories go to the end of the menu order.
+  const lastCategory = await MenuCategory.findOne(
+    { entityId },
+    { sortIndex: 1 }
+  )
+    .sort({ sortIndex: -1 })
+    .lean();
+  const firstSortIndex = (lastCategory?.sortIndex || 0) + 1;
+
   const categoryObjects = categories.flatMap(
-    ({ categoryName, nutritionType }) =>
+    ({ categoryName, nutritionType }, index) =>
       counterIds.map((counterId) => ({
         categoryName,
         nutritionType,
         counterId,
         entityId,
+        sortIndex: firstSortIndex + index,
       }))
   );
 
@@ -639,6 +668,15 @@ module.exports.createMenuItem = async (req) => {
     });
   }
 
+  // A new item goes to the end of its category.
+  const lastItem = await ItemDetails.findOne(
+    { entityId: req.entityId, menuCategoryId: { $in: menuCategoryIds } },
+    { sortIndex: 1 }
+  )
+    .sort({ sortIndex: -1 })
+    .lean();
+  const sortIndex = (lastItem?.sortIndex || 0) + 1;
+
   // Create item once per category, assign all counterIds, and category's own counterId if available
 
   // console.log({menuCategoryIds});
@@ -661,6 +699,7 @@ module.exports.createMenuItem = async (req) => {
         nutritionType,
         inStock: true,
         quantity,
+        sortIndex,
       });
     })
   );
@@ -793,7 +832,29 @@ module.exports.updateMenuItem = async (req) => {
     },
   });
 
-  if (activeOrders.length > 0) {
+  // Switching stock on or off must always work, also mid-service: open
+  // orders keep their snapshot, only new guests stop seeing the item.
+  const isStockOnlyChange =
+    action === EDIT_ACTION.EDIT &&
+    inStock !== undefined &&
+    !file &&
+    [
+      itemName,
+      price,
+      description,
+      nutritionType,
+      currency,
+      quantity,
+      counterIds,
+      categoryName,
+      unit,
+      isAlcohol18,
+      isAlcohol16,
+      isVegan,
+      removeImage,
+    ].every((value) => value === undefined);
+
+  if (activeOrders.length > 0 && !isStockOnlyChange) {
     return throwError({
       status: STATUS_CODES.BAD_REQUEST,
       message: t("OWNER_ITEM_CANNOT_EDIT_ACTIVE_ORDER", lang),
@@ -1228,21 +1289,25 @@ module.exports.getCreatedItems = async (req) => {
   }
   console.log(query);
 
-  const createdItems = await ItemDetails.find(query)
-    .sort({ _id: -1 })
-    .populate({
-      path: "menuCategoryId",
-      select: "categoryName counterId",
-      model: "CounterMenuCategory",
-      populate: {
-        path: "counterId",
-        select: "status counterName",
-        model: "Counter",
-      },
-    })
-    .lean();
-
-  console.log({ createdItems });
+  const createdItems = (
+    await ItemDetails.find(query)
+      .sort({ sortIndex: 1, _id: 1 })
+      .populate({
+        path: "menuCategoryId",
+        select: "categoryName counterId sortIndex",
+        model: "CounterMenuCategory",
+        populate: {
+          path: "counterId",
+          select: "status counterName",
+          model: "Counter",
+        },
+      })
+      .lean()
+  ).sort(
+    // Stable: keeps the item order inside each category.
+    (a, b) =>
+      (a.menuCategoryId?.sortIndex || 0) - (b.menuCategoryId?.sortIndex || 0)
+  );
 
   if (searchedId && pageNo == 1 && !menuCategoryName) {
     const searchedIdItem = await ItemDetails.findById(searchedId)
@@ -2396,7 +2461,7 @@ module.exports.getMenuCategory = async (req) => {
     { entityId: req.entityId },
     { entityId: 0, createdAt: 0, updatedAt: 0 }
   )
-    .sort({ _id: -1 })
+    .sort({ sortIndex: 1, _id: 1 })
     .lean()
     .populate({
       path: "counterId",
@@ -2417,6 +2482,7 @@ module.exports.getMenuCategory = async (req) => {
         _id: category._id,
         categoryName: category.categoryName,
         nutritionType: category.nutritionType,
+        sortIndex: category.sortIndex || 0,
         __v: category.__v,
         counterIds: [],
       };
@@ -4929,6 +4995,7 @@ module.exports.restaurantCancelOrder = async (req) => {
 
   const order = await Order.findOne({
     _id: orderId,
+    entityId: req.entityId,
     status: { $in: [globalConstants.ORDER_STATUS.WAITING] },
   });
 

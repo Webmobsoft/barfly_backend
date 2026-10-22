@@ -30,8 +30,14 @@ const entityDetailsSchema = new Schema(
     walleeApplicationUserId: { type: Number },
     walleeOnboardingUrl: { type: String },
     blockUnblockDate: { type: Date },
+    // IANA timezone the opening hours are written in.
+    timezone: { type: String, default: "Europe/Zurich" },
   },
   { timestamps: true }
 );
+
+// Indexes for the guest app's hot queries (see docs/ordering-api-1.0.3.md).
+entityDetailsSchema.index({ status: 1, isOpen: 1, _id: -1 });
+entityDetailsSchema.index({ status: 1, isOpen: 1, views: -1, _id: -1 });
 
 module.exports = mongoose.model("EntityDetails", entityDetailsSchema);

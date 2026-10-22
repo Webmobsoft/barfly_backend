@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "pm2 start",
-    "start": "node app.js"
+    "start": "node app.js",
+    "test:unit": "node --test \"test/**/*.test.js\""
   },
   "keywords": [],
   "author": "",

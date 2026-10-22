@@ -25,4 +25,8 @@ const userSchema = new Schema(
   },
   { timestamps: true, minimize: false }
 );
+// Indexes for the guest app's hot queries (see docs/ordering-api-1.0.3.md).
+userSchema.index({ email: 1, role: 1, status: 1 });
+userSchema.index({ countrTag: 1, status: 1 });
+
 module.exports = mongoose.model("User", userSchema, "User");
