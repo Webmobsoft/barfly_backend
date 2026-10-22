@@ -2,8 +2,6 @@ const express = require("express");
 const router = express.Router();
 const { STATUS_CODES, ROLES, STATUS } = require("../../Utils/globalConstants");
 const {
-  getUpcomingEvents,
-  getEventsByMonthAndYear,
   createMenuItem,
   getCreatedItems,
   createCounter,
@@ -13,15 +11,9 @@ const {
   getCounterMenuQuantites,
   updateCounterSettings,
   getCounterSettings,
-  createEvent,
   getParticularItemDetail,
   updateMenuItem,
-  getDistinctMonthsOfYear,
-  getMonthlyEventDetails,
-  getOngoingEventDetails,
-  getDistinctYears,
   createItems,
-  getOrderDetailsOfEvents,
   createDiscountCoupon,
   getDiscountCoupon,
   editBusinessDetails,
@@ -40,16 +32,12 @@ const {
   removeSearchLogs,
   editTable,
   getCountersForTableManagement,
-  getCountersForEvents,
   deleteFeedbackQuestions,
   getCounterAndCategory,
   restaurantCancelOrder,
   downloadSalesReport,
   getSalesReportHistory,
   editCategory,
-  deleteEvent,
-  editEvent,
-  getDateWiseEventDetails,
   ownerAppFeedback,
   getFeedbackAppQuestions,
   getOwnerAppFeedbackAnswers,
@@ -61,9 +49,6 @@ const ItemDetails = require("../../Models/ItemDetails");
 const MenuItem = require("../../Models/MenuItem");
 const { addExistingItemToMenu } = require("../Customer/service");
 const MenuCategory = require("../../Models/MenuCategory");
-// const { client } = require("../../Utils/bullQueue");
-const { scheduleEmit } = require("../../Utils/emitQueue");
-const client = require("../../redis");
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 const { t, getLanguageFromRequest } = require("../../Utils/translator");
@@ -204,22 +189,6 @@ router.get("/get-menu-category-items", async (req, res) => {
   }
 });
 
-router.get("/get-order-details-of-events", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const orderDetailsOfEvents = await getOrderDetailsOfEvents(req);
-    return res.status(STATUS_CODES.OK).json({
-      message: t("OWNER_ORDER_DETAILS_FETCH_SUCCESS", lang),
-      orderDetailsOfEvents,
-    });
-  } catch (error) {
-    console.error("Error while fetching order details", error);
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_ORDER_DETAILS_FETCH_ERROR", lang),
-    });
-  }
-});
-
 router.post("/create-menu-items", upload.single("file"), async (req, res) => {
   const lang = getLanguageFromRequest(req);
   try {
@@ -317,160 +286,6 @@ router.get("/get-menu-particular-item", async (req, res) => {
   } catch (error) {
     return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
       message: error.message || t("OWNER_ITEM_DETAILS_FETCH_ERROR", lang),
-    });
-  }
-});
-
-router.post("/create-event", upload.single("file"), async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const response = await createEvent(req);
-    console.log(`Event created: ${response.eventName} at ${response.from}`);
-
-    const redisKey = `upcoming_event:${response._id}`;
-    await client.set(redisKey, JSON.stringify(response), "EX", 86400); // 24 hours TTL
-
-    console.log(`Cached event with key: ${redisKey}`);
-
-    // Schedule emit job
-    scheduleEmit(response);
-    return res.status(STATUS_CODES.OK).json({
-      message: t("OWNER_EVENT_CREATE_SUCCESS", lang),
-      data: response,
-    });
-  } catch (error) {
-    console.error({ error, message: "Error occured in create event" });
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_EVENT_CREATE_ERROR", lang),
-    });
-  }
-});
-
-router.post("/delete-event", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    await deleteEvent(req);
-    return res
-      .status(STATUS_CODES.OK)
-      .json({ message: t("OWNER_EVENT_DELETE_SUCCESS", lang) });
-  } catch (error) {
-    console.error({ error, message: "Error occured in deleting event" });
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_EVENT_DELETE_ERROR", lang),
-    });
-  }
-});
-router.post("/edit-event", upload.single("file"), async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    await editEvent(req);
-    return res
-      .status(STATUS_CODES.OK)
-      .json({ message: t("EVENT_UPDATE_SUCCESS", lang) });
-  } catch (error) {
-    console.error({ error, message: "Error occured in updating event" });
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("EVENT_UPDATE_ERROR", lang),
-    });
-  }
-});
-
-router.get("/get-upcoming-events", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const upcomingEvents = await getUpcomingEvents(req);
-    return res.status(STATUS_CODES.OK).json({
-      message: t("OWNER_UPCOMING_EVENTS_FETCH_SUCCESS", lang),
-      upcomingEvents,
-    });
-  } catch (error) {
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_UPCOMING_EVENTS_FETCH_ERROR", lang),
-    });
-  }
-});
-
-router.get("/get-past-events-years", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const pastEventsYear = await getDistinctYears(req);
-    return res.status(STATUS_CODES.OK).json({
-      message: t("OWNER_PAST_EVENTS_YEARS_FETCH_SUCCESS", lang),
-      pastEventsYear,
-    });
-  } catch (error) {
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_PAST_EVENTS_YEARS_FETCH_ERROR", lang),
-    });
-  }
-});
-
-router.get("/get-past-events-year-month", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const pastEventsMonths = await getDistinctMonthsOfYear(req);
-    return res.status(STATUS_CODES.OK).json({
-      message: t("OWNER_PAST_EVENTS_MONTHS_FETCH_SUCCESS", lang),
-      pastEventsMonths,
-    });
-  } catch (error) {
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_PAST_EVENTS_MONTHS_FETCH_ERROR", lang),
-    });
-  }
-});
-
-router.get("/get-past-events-by-month", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const response = await getEventsByMonthAndYear(req);
-
-    // if (!response.length) {
-    //   return res
-    //     .status(STATUS_CODES.OK)
-    //     .json({ message: `No events found for ${month}/${year}` });
-    // }
-    return res.status(STATUS_CODES.OK).json({
-      message: t("OWNER_PAST_EVENTS_FETCH_SUCCESS", lang),
-      data: response,
-    });
-  } catch (error) {
-    console.error("Error while getting past events:", error);
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_PAST_EVENTS_FETCH_ERROR", lang),
-    });
-  }
-});
-
-router.get("/get-event-details-monthly", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const monthlyEventDetails = await getMonthlyEventDetails(req);
-    return res.status(STATUS_CODES.OK).json({
-      message: t("OWNER_MONTHLY_EVENT_DETAILS_FETCH_SUCCESS", lang),
-      monthlyEventDetails,
-    });
-  } catch (error) {
-    console.error("Error occured while fetching the monthly event details");
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message:
-        error.message || t("OWNER_MONTHLY_EVENT_DETAILS_FETCH_ERROR", lang),
-    });
-  }
-});
-
-router.get("/get-ongoing-event-details", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const ongoingEventDetails = await getOngoingEventDetails(req);
-    return res.status(STATUS_CODES.OK).json({
-      message: t("OWNER_ONGOING_EVENTS_FETCH_SUCCESS", lang),
-      ongoingEventDetails,
-    });
-  } catch (error) {
-    console.error("Error occured in ongoing event details", error);
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_ONGOING_EVENTS_FETCH_ERROR", lang),
     });
   }
 });
@@ -724,21 +539,6 @@ router.get("/get-remaining-counter-for-tables", async (req, res) => {
   const lang = getLanguageFromRequest(req);
   try {
     const data = await getCountersForTableManagement(req);
-    return res
-      .status(STATUS_CODES.OK)
-      .json({ message: t("OWNER_COUNTER_FETCH_SUCCESS", lang), data });
-  } catch (error) {
-    console.error("Error while fetching the Counter list", error);
-    return res.status(STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("OWNER_COUNTER_FETCH_ERROR", lang),
-    });
-  }
-});
-
-router.get("/get-counters-for-event", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const data = await getCountersForEvents(req);
     return res
       .status(STATUS_CODES.OK)
       .json({ message: t("OWNER_COUNTER_FETCH_SUCCESS", lang), data });

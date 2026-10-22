@@ -21,6 +21,7 @@ const Order = require("../Models/Order");
 const { ORDER_STATUS } = require("../Utils/globalConstants");
 const { t, getLanguageFromRequest } = require("../Utils/translator");
 const { getIo } = require("../Utils/socket");
+const { emitOrderUpdated } = require("./orderingService");
 const { sendFirebaseNotification } = require("../Utils/commonFunction");
 const {
   genrateCustomerOrderReport,
@@ -686,6 +687,7 @@ const handleWalleeWebhook = async (req) => {
                 getIo()
                   ?.to(order.entityId.toString())
                   .emit("newOrder", [order]);
+                emitOrderUpdated(order, ORDER_STATUS.WAITING);
               }
 
               // Firebase notification to owner

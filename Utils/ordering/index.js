@@ -4,4 +4,5 @@ module.exports = {
   ...require("./counterState"),
   ...require("./openingHours"),
   ...require("./pricing"),
+  ...require("./board"),
 };

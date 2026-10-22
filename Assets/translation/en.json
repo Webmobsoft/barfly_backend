@@ -654,5 +654,18 @@
   "MENU_ORDER_SAVE_ERROR": "Error while saving the menu order.",
   "MENU_RECOMMENDED_SAVE_SUCCESS": "Recommendation saved.",
   "MENU_RECOMMENDED_SAVE_ERROR": "Error while saving the recommendation.",
-  "OWNER_MENU_ITEM_NOT_FOUND": "Item not found."
+  "OWNER_MENU_ITEM_NOT_FOUND": "Item not found.",
+  "MESSAGE_ORDER_NOT_FOUND": "Order not found.",
+  "MESSAGE_CHAT_CLOSED": "This chat is closed. Messages are only possible while the order is open.",
+  "MESSAGE_GUEST_CANNOT_START": "Only the restaurant can start a conversation.",
+  "MESSAGE_TEXT_INVALID": "Please enter a message of up to 500 characters.",
+  "MESSAGE_FETCH_SUCCESS": "Messages fetched successfully.",
+  "MESSAGE_FETCH_ERROR": "Could not load the messages.",
+  "MESSAGE_SEND_SUCCESS": "Message sent.",
+  "MESSAGE_SEND_ERROR": "Could not send the message.",
+  "MESSAGE_READ_SUCCESS": "Messages marked as read.",
+  "BOARD_FETCH_SUCCESS": "Order board fetched successfully.",
+  "BOARD_FETCH_ERROR": "Could not load the order board.",
+  "BOARD_STATUS_INVALID": "Status must be live or ready.",
+  "BOARD_COUNTER_NOT_FOUND": "Counter not found."
 }

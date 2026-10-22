@@ -181,11 +181,42 @@ const serializeState = (state) => ({
     : null,
 });
 
+// What the minute ticker compares to decide whether a counter changed.
+const COUNTER_STATE_KEY_PREFIX = "counterState:";
+const COUNTER_STATE_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+const toStateSnapshot = (state) =>
+  JSON.stringify({
+    state: state.state,
+    acceptsAsap: Boolean(state.acceptsAsap),
+    acceptsSlots: Boolean(state.acceptsSlots),
+    pausedUntil: state.pausedUntil
+      ? new Date(state.pausedUntil).toISOString()
+      : null,
+  });
+
+const saveStateSnapshot = async (counterId, snapshot) => {
+  try {
+    // Required lazily: the rules tests load this file without Redis.
+    const redisClient = require("../redis");
+    if (!redisClient.isOpen) return;
+    await redisClient.set(`${COUNTER_STATE_KEY_PREFIX}${counterId}`, snapshot, {
+      EX: COUNTER_STATE_TTL_SECONDS,
+    });
+  } catch (error) {
+    console.error("Could not store counter state snapshot", error.message);
+  }
+};
+
 // Tell the restaurant's boards and every guest app that a counter changed.
-const emitCounterState = async (counter) => {
+// `state` may be passed when the caller already computed it (the ticker).
+const emitCounterState = async (counter, { state: knownState } = {}) => {
   const io = getIo();
-  if (!io || !counter) return;
-  const state = await getCounterStateFor(counter);
+  if (!counter) return;
+  const state = knownState || (await getCounterStateFor(counter));
+  // Remember what was announced so the ticker does not repeat it.
+  await saveStateSnapshot(String(counter._id), toStateSnapshot(state));
+  if (!io) return;
   const payload = {
     entityId: String(counter.entityId),
     counterId: String(counter._id),
@@ -193,6 +224,23 @@ const emitCounterState = async (counter) => {
   };
   io.to(String(counter.entityId)).emit("counterStateChanged", payload);
   io.to("public").emit("counterStateChanged", payload);
+};
+
+// Lets boards and the guest's app patch one order instead of reloading.
+// Sent on paid (webhook), every status change and both cancel paths.
+const emitOrderUpdated = (order, status = order?.status) => {
+  const io = getIo();
+  if (!io || !order) return;
+  const entityId = String(order.entityId?._id || order.entityId);
+  const userId = order.userId?._id || order.userId;
+  const payload = {
+    entityId,
+    orderId: String(order._id),
+    status,
+    counterId: order.counterId ? String(order.counterId?._id || order.counterId) : null,
+  };
+  io.to(entityId).emit("orderUpdated", payload);
+  if (userId) io.to(`user_${userId}`).emit("orderUpdated", payload);
 };
 
 module.exports = {
@@ -207,4 +255,7 @@ module.exports = {
   lockCounterForOrder,
   serializeState,
   emitCounterState,
+  emitOrderUpdated,
+  toStateSnapshot,
+  COUNTER_STATE_KEY_PREFIX,
 };

@@ -16,13 +16,14 @@ const {
   getOrderGroupByMonths,
   getRestaurantOrdersAndCount,
   particularOrderDetailsCustomer,
-  getEventOrderSummary,
   createOfflineOrder,
   getOfflineOrders,
   updateOfflineOrders,
 } = require("../CustomerServices/orderService");
 
 const { STATUS_CODES, ORDER_STATUS } = require("../Utils/globalConstants");
+const { emitOrderUpdated } = require("../CustomerServices/orderingService");
+const { getBoard } = require("../CustomerServices/boardService");
 const { t, getLanguageFromRequest } = require("../Utils/translator");
 
 const verifyToken = require("../Utils/verifyToken");
@@ -48,6 +49,7 @@ router.post("/create-order", async (req, res) => {
     // For Wallee payment orders, notification is deferred to webhook SUCCESS handler
     if (response[0].status !== ORDER_STATUS.PAYMENT_PROCESSING) {
       io.to(response[0].entityId.toString()).emit("newOrder", response);
+      emitOrderUpdated(response[0]);
     }
     return res
       .status(STATUS_CODES.OK)
@@ -219,6 +221,23 @@ router.get("/get-entity-orders-group-by-years", async (req, res) => {
   }
 });
 
+// Order board: ?status=live|ready (default live), ?counterId= (omit = all).
+router.get("/board", async (req, res) => {
+  const lang = getLanguageFromRequest(req);
+  try {
+    const data = await getBoard(req, lang);
+    return res
+      .status(STATUS_CODES.OK)
+      .json({ message: t("BOARD_FETCH_SUCCESS", lang), ...data });
+  } catch (error) {
+    if (!error.code) console.error("Error while fetching the order board", error);
+    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
+      message: error.message || t("BOARD_FETCH_ERROR", lang),
+      ...(error.code ? { code: error.code } : {}),
+    });
+  }
+});
+
 router.get("/get-live-orders-user", async (req, res) => {
   const lang = getLanguageFromRequest(req);
   try {
@@ -295,21 +314,6 @@ router.post("/cancel-order", async (req, res) => {
     console.error("Error while cancelling the order", error);
     return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
       message: error.message || t("ORDER_CANCEL_ERROR", lang),
-    });
-  }
-});
-
-router.get("/get-event-order-summary", async (req, res) => {
-  const lang = getLanguageFromRequest(req);
-  try {
-    const data = await getEventOrderSummary(req);
-    return res
-      .status(STATUS_CODES.OK)
-      .json({ message: t("EVENT_REVENUE_FETCH_SUCCESS", lang), data });
-  } catch (error) {
-    console.error("Error while generating the revenue", error);
-    return res.status(error.status || STATUS_CODES.SERVER_ERROR).json({
-      message: error.message || t("EVENT_REVENUE_FETCH_ERROR", lang),
     });
   }
 });

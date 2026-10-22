@@ -1,10 +1,7 @@
 const express = require("express");
 require("./db");
 require("./redis");
-require("./cron/emitEvent");
 require("./server");
-require("./Utils/bullQueue");
-require("./Utils/emitProcessor");
 // const setupCron = require("./cron/cron");
 
 const path = require("path");
@@ -253,6 +250,7 @@ app.use(
 app.use("/api/customer/entities", require("./Controller/Customer/controller"));
 
 app.use("/api/orders", orderController);
+app.use("/api/orders", require("./Controller/messageController"));
 // app.use("/api/stripe", StripeController); // Commented out - using Wallee instead
 app.use("/api/wallee", WalleeController);
 app.use("/api/admins", adminController);
@@ -488,5 +486,7 @@ const port = process.env.PORT;
 preloadPlatformFees().finally(() => {
   server.listen(port, () => {
     console.log(`Server is listening at http://localhost:${port}`);
+    // Minute ticker for counters opening, closing and pauses running out.
+    require("./Utils/counterStateTicker").startCounterStateTicker();
   });
 });

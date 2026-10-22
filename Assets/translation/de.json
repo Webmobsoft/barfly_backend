@@ -654,5 +654,18 @@
   "MENU_ORDER_SAVE_ERROR": "Fehler beim Speichern der Reihenfolge.",
   "MENU_RECOMMENDED_SAVE_SUCCESS": "Empfehlung gespeichert.",
   "MENU_RECOMMENDED_SAVE_ERROR": "Fehler beim Speichern der Empfehlung.",
-  "OWNER_MENU_ITEM_NOT_FOUND": "Produkt nicht gefunden."
+  "OWNER_MENU_ITEM_NOT_FOUND": "Produkt nicht gefunden.",
+  "MESSAGE_ORDER_NOT_FOUND": "Bestellung nicht gefunden.",
+  "MESSAGE_CHAT_CLOSED": "Dieser Chat ist geschlossen. Nachrichten sind nur möglich, solange die Bestellung offen ist.",
+  "MESSAGE_GUEST_CANNOT_START": "Nur das Restaurant kann eine Unterhaltung beginnen.",
+  "MESSAGE_TEXT_INVALID": "Bitte gib eine Nachricht mit höchstens 500 Zeichen ein.",
+  "MESSAGE_FETCH_SUCCESS": "Nachrichten erfolgreich geladen.",
+  "MESSAGE_FETCH_ERROR": "Die Nachrichten konnten nicht geladen werden.",
+  "MESSAGE_SEND_SUCCESS": "Nachricht gesendet.",
+  "MESSAGE_SEND_ERROR": "Die Nachricht konnte nicht gesendet werden.",
+  "MESSAGE_READ_SUCCESS": "Nachrichten als gelesen markiert.",
+  "BOARD_FETCH_SUCCESS": "Bestellübersicht erfolgreich geladen.",
+  "BOARD_FETCH_ERROR": "Die Bestellübersicht konnte nicht geladen werden.",
+  "BOARD_STATUS_INVALID": "Status muss live oder ready sein.",
+  "BOARD_COUNTER_NOT_FOUND": "Counter nicht gefunden."
 }
