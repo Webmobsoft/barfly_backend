@@ -5,6 +5,7 @@ const {
   getSlotRowState,
   getPrepareFrom,
   getAgeMinutes,
+  getBoardSince,
   buildBoard,
   SLOT_ROW_STATES,
 } = require("../../Utils/ordering");
@@ -90,4 +91,22 @@ test("board: several counters in one row add up limits, null when one is unlimit
   assert.equal(limited.slots[0].prepareFrom.toISOString(), iso("09:40").toISOString());
   const open = buildBoard({ orders, counters: new Map([["c1", { ordersPerSlot: 4 }], ["c2", { ordersPerSlot: null }]]), bookedCounts: booked, now: NOW });
   assert.equal(open.slots[0].limit, null);
+});
+
+test("board since: midnight in the venue's timezone during the day", () => {
+  // 11:38 in Zurich (CEST) -> midnight local is 22:00 UTC the day before.
+  const since = getBoardSince({ now: NOW, timezone: "Europe/Zurich" });
+  assert.equal(since.toISOString(), "2026-10-20T22:00:00.000Z");
+});
+
+test("board since: 6 hours back after midnight, so late-night orders stay", () => {
+  // 01:30 local -> 19:30 local the evening before.
+  const since = getBoardSince({ now: new Date("2026-10-20T23:30:00.000Z"), timezone: "Europe/Zurich" });
+  assert.equal(since.toISOString(), "2026-10-20T17:30:00.000Z");
+});
+
+test("board since: midnight on the day the clocks go back", () => {
+  // 25 Oct 2026, 12:00 CET; midnight that day was still CEST (+2).
+  const since = getBoardSince({ now: new Date("2026-10-25T11:00:00.000Z"), timezone: "Europe/Zurich" });
+  assert.equal(since.toISOString(), "2026-10-24T22:00:00.000Z");
 });

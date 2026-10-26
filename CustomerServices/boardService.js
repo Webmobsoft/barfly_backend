@@ -9,8 +9,8 @@ const ItemDetails = require("../Models/ItemDetails");
 const { STATUS_CODES, ORDER_STATUS } = require("../Utils/globalConstants");
 const throwError = require("../Utils/throwError");
 const { t } = require("../Utils/translator");
-const { buildBoard } = require("../Utils/ordering");
-const { getBookedCounts } = require("./orderingService");
+const { buildBoard, getBoardSince } = require("../Utils/ordering");
+const { getBookedCounts, getEntityTimezone } = require("./orderingService");
 const { getMessageSummaries, SENDERS } = require("./messageService");
 
 const { ObjectId } = mongoose.Types;
@@ -38,6 +38,18 @@ const ORDER_FIELDS = {
   pickupSlotStart: 1,
   pickupSlotLength: 1,
   items: 1,
+};
+
+// Today's orders only (see getBoardSince): open orders from earlier days
+// stay off the board and out of its tab counts.
+const getBoardTimeFilter = async (entityId, now = new Date()) => {
+  const since = getBoardSince({ now, timezone: await getEntityTimezone(entityId) });
+  return {
+    $or: [
+      { pickupSlotStart: { $gte: since } },
+      { pickupSlotStart: null, createdAt: { $gte: since } },
+    ],
+  };
 };
 
 const toBoardItem = (item, names) => ({
@@ -97,6 +109,7 @@ const getBoard = async (req, lang) => {
       entityId,
       status: { $in: BOARD_TABS[tab] },
       ...(counterId ? { counterId: ObjectId(String(counterId)) } : {}),
+      ...(await getBoardTimeFilter(entityId, now)),
     },
     ORDER_FIELDS,
   ).lean();
@@ -175,4 +188,4 @@ const getBoard = async (req, lang) => {
   return { serverTime: now, status: tab, counterId: counterId || null, asap, slots };
 };
 
-module.exports = { BOARD_TABS, getBoard };
+module.exports = { BOARD_TABS, getBoard, getBoardTimeFilter };

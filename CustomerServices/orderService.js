@@ -43,6 +43,7 @@ const {
   emitOrderUpdated,
 } = require("./orderingService");
 const { withGuestMessageInfo } = require("./messageService");
+const { getBoardTimeFilter } = require("./boardService");
 
 const PICKUP_MODES = { ASAP: "asap", SLOT: "slot" };
 
@@ -768,15 +769,20 @@ const getEntityOrders = async (req) => {
   delete baseQuery.status;
   delete baseQuery._id;
 
+  // Live and Ready count what the board shows (today's orders only).
+  const boardTime = await getBoardTimeFilter(entityId);
   const [orderProcessCount, readyOrders, completedOrders, cancelledOrders] =
     await Promise.all([
       Order.countDocuments({
-        ...baseQuery,
+        $and: [baseQuery, boardTime],
         status: {
           $in: [ORDER_STATUS.WAITING, ORDER_STATUS.IN_PROGRESS],
         },
       }),
-      Order.countDocuments({ ...baseQuery, status: ORDER_STATUS.READY }),
+      Order.countDocuments({
+        $and: [baseQuery, boardTime],
+        status: ORDER_STATUS.READY,
+      }),
       Order.countDocuments({ ...baseQuery, status: ORDER_STATUS.COMPLETED }),
       Order.countDocuments({ ...baseQuery, status: ORDER_STATUS.CANCELLED }),
     ]);

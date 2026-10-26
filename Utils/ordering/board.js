@@ -1,7 +1,7 @@
 // Order board layout: ASAP tickets on top, then one row per pickup slot.
 // Pure functions: they take orders that are already loaded and a clock.
 
-const { MINUTE_MS } = require("./time");
+const { MINUTE_MS, getLocalParts, zonedTimeToDate } = require("./time");
 const { SLOT_LENGTH_MINUTES, DEFAULT_PREP_TIME_MINUTES } = require("./counterState");
 
 const SLOT_ROW_STATES = {
@@ -55,6 +55,22 @@ const getPrepareFrom = (start, prepTimeMinutes) => {
 
 const getAgeMinutes = (createdAt, now = new Date()) =>
   Math.max(Math.floor((toMs(now) - toMs(createdAt)) / MINUTE_MS), 0);
+
+// Open orders older than this stay off the board (see getBoardSince).
+const BOARD_LATE_NIGHT_HOURS = 6;
+
+/**
+ * Oldest order time the board still shows: midnight today in the venue's
+ * timezone, or `BOARD_LATE_NIGHT_HOURS` ago when that is earlier, so a bar's
+ * orders from before midnight stay visible in the small hours. Open orders
+ * from earlier days would otherwise sit on the board as overdue forever.
+ * An order's time is its pickup slot start, or createdAt for ASAP orders.
+ */
+const getBoardSince = ({ now = new Date(), timezone } = {}) => {
+  const midnight = zonedTimeToDate(getLocalParts(now, timezone), 0, timezone);
+  const lateNight = toMs(now) - BOARD_LATE_NIGHT_HOURS * 60 * MINUTE_MS;
+  return new Date(Math.min(midnight.getTime(), lateNight));
+};
 
 const byCreatedAt = (a, b) => toMs(a.createdAt) - toMs(b.createdAt);
 
@@ -136,5 +152,6 @@ module.exports = {
   getSlotRowState,
   getPrepareFrom,
   getAgeMinutes,
+  getBoardSince,
   buildBoard,
 };
