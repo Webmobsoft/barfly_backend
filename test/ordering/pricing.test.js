@@ -116,3 +116,25 @@ test("rejects unavailable or unknown extras, bad quantities, sold-out items", ()
     ORDERING_ERRORS.EMPTY,
   );
 });
+
+test("the server's total wins over prices and totals sent by the app", () => {
+  const { lines, subtotal } = priceOrderLines({
+    lines: [
+      {
+        itemId: "item1",
+        quantity: 2,
+        extras: ["cheese"],
+        price: 0.01,
+        unitPrice: 0.01,
+        lineTotal: 0.02,
+        extraPrices: [{ id: "cheese", price: 0 }],
+      },
+    ],
+    itemsById: items,
+    extrasListsById: lists,
+  });
+  assert.equal(lines[0].unitPrice, 4.5);
+  assert.equal(lines[0].lineTotal, 9);
+  assert.equal(lines[0].extras[0].price, 1.5);
+  assert.equal(subtotal, 9);
+});

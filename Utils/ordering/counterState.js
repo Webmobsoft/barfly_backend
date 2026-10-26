@@ -188,7 +188,11 @@ const getNextOpening = (instances, now) => {
     );
     candidates.forEach((candidate) => {
       if (candidate.at > now && (!next || candidate.at < next.at)) {
-        next = { ...candidate, pickupFrom: instance.pickupStart };
+        next = {
+          ...candidate,
+          pickupFrom: instance.pickupStart,
+          blockName: instance.name || null,
+        };
       }
     });
   });
@@ -198,7 +202,8 @@ const getNextOpening = (instances, now) => {
 /**
  * Ordering state of one counter at `now`.
  * @returns {{ state, acceptsAsap, acceptsSlots, openUntil, pickupFrom,
- *   nextOpening, pausedUntil, pauseKind, prepTimeMinutes, timezone }}
+ *   blockName, nextOpening, pausedUntil, pauseKind, prepTimeMinutes, timezone }}
+ * blockName: the optional name ("Lunch") of the block guests order for now.
  */
 const getCounterState = ({ counter, now = new Date(), timezone }) => {
   const tz = resolveTimezone(timezone);
@@ -208,6 +213,7 @@ const getCounterState = ({ counter, now = new Date(), timezone }) => {
     acceptsSlots: false,
     openUntil: null,
     pickupFrom: null,
+    blockName: null,
     nextOpening: null,
     pausedUntil: null,
     pauseKind: null,
@@ -250,15 +256,21 @@ const getCounterState = ({ counter, now = new Date(), timezone }) => {
       acceptsSlots,
       openUntil: asapInstance.asapWindow.end,
       pickupFrom: asapInstance.pickupStart,
+      blockName: asapInstance.name || null,
       nextOpening,
     };
   }
   if (acceptsSlots) {
+    const first = candidateSlots[0].start;
+    const slotInstance = instances.find(
+      (instance) => first >= instance.pickupStart && first < instance.pickupEnd,
+    );
     return {
       ...base,
       state: COUNTER_STATES.PREORDER,
       acceptsSlots,
-      pickupFrom: candidateSlots[0].start,
+      pickupFrom: first,
+      blockName: slotInstance?.name || null,
       nextOpening,
     };
   }

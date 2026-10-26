@@ -177,6 +177,7 @@ const serializeState = (state) => ({
         at: state.nextOpening.at,
         kind: state.nextOpening.kind,
         pickupFrom: state.nextOpening.pickupFrom,
+        blockName: state.nextOpening.blockName || null,
       }
     : null,
 });
@@ -208,7 +209,31 @@ const saveStateSnapshot = async (counterId, snapshot) => {
   }
 };
 
-// Tell the restaurant's boards and every guest app that a counter changed.
+// Silent push so apps that are closed or in the background learn it too.
+const notifyCounterState = (counter, state) => {
+  // Required lazily: the rules tests load this file without Firebase.
+  const { sendFirebaseNotification } = require("../Utils/commonFunction");
+  const data = {
+    action: "counter_state_update",
+    entityId: String(counter.entityId),
+    counterId: String(counter._id),
+    state: state.state,
+  };
+  [
+    "customer_entity",
+    `owner_entity_${counter.entityId}`,
+  ].forEach((topic) =>
+    sendFirebaseNotification({
+      topic,
+      showNotification: false,
+      data: { ...data, topic },
+    }),
+  );
+};
+
+// Tell the restaurant's boards and every guest app that a counter changed:
+// socket to the entity and public rooms, plus a silent push. Used by the
+// ticker and right after pause, resume, hours and slot-limit edits.
 // `state` may be passed when the caller already computed it (the ticker).
 const emitCounterState = async (counter, { state: knownState } = {}) => {
   const io = getIo();
@@ -216,6 +241,11 @@ const emitCounterState = async (counter, { state: knownState } = {}) => {
   const state = knownState || (await getCounterStateFor(counter));
   // Remember what was announced so the ticker does not repeat it.
   await saveStateSnapshot(String(counter._id), toStateSnapshot(state));
+  try {
+    notifyCounterState(counter, state);
+  } catch (error) {
+    console.error("Could not push counter state", error.message);
+  }
   if (!io) return;
   const payload = {
     entityId: String(counter.entityId),

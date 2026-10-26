@@ -54,6 +54,7 @@ const announceMenuChange = (entityId) => {
   const io = getIo();
   if (io) {
     io.to(String(entityId)).emit("menuItemUpdated", { entityId: String(entityId) });
+    io.to("public").emit("itemUpdate", { action: "edit", entityId: String(entityId) });
   }
   ["owner_entity_", "entity_"].forEach((prefix) =>
     sendFirebaseNotification({

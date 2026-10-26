@@ -224,3 +224,60 @@ test("entity state: open when any counter is open", () => {
   assert.equal(entity.state, COUNTER_STATES.OPEN);
   assert.equal(entity.acceptsAsap, true);
 });
+
+test("block name: the open or pre-order block's name, and the next opening's", () => {
+  const counter = {
+    status: "Active",
+    prepTimeMinutes: 10,
+    openingHours: Array.from({ length: 7 }, (_, day) => ({
+      day,
+      enabled: true,
+      blocks: [
+        { ...LUNCH, mode: "preorder", orderCutoff: "11:00", name: "Lunch" },
+        { pickupFrom: "17:00", pickupTo: "21:00", mode: "live", name: "" },
+      ],
+    })),
+  };
+  const morning = getCounterState({ counter, now: at("08:00"), timezone: TZ });
+  assert.equal(morning.state, COUNTER_STATES.PREORDER);
+  assert.equal(morning.blockName, "Lunch");
+  const evening = getCounterState({ counter, now: at("18:00"), timezone: TZ });
+  assert.equal(evening.state, COUNTER_STATES.OPEN);
+  assert.equal(evening.blockName, null);
+  const between = getCounterState({ counter, now: at("14:00"), timezone: TZ });
+  assert.equal(between.blockName, null);
+  assert.equal(between.nextOpening.blockName, null);
+  const night = getCounterState({ counter, now: at("21:30"), timezone: TZ });
+  assert.equal(night.nextOpening.blockName, "Lunch");
+});
+
+// Sunday 25 Oct 2026: 03:00 CEST -> 02:00 CET. Sunday 28 Mar 2027: 02:00 CET -> 03:00 CEST.
+const OCT_25 = { year: 2026, month: 10, day: 25 };
+const MAR_28 = { year: 2027, month: 3, day: 28 };
+
+test("DST days: lunch hours and slots stay on the local clock", () => {
+  [OCT_25, MAR_28].forEach((date) => {
+    const counter = counterWith({ ...LUNCH, mode: "both", orderCutoff: "11:00" });
+    const slots = getAvailableSlots({ counter, now: at("08:00", date), timezone: TZ });
+    assert.equal(slots.length, 8);
+    assert.equal(slots[0].start.getTime(), at("11:30", date).getTime());
+    assert.equal(slots[7].end.getTime(), at("13:30", date).getTime());
+    const open = getCounterState({ counter, now: at("11:30", date), timezone: TZ });
+    assert.equal(open.state, COUNTER_STATES.OPEN);
+    assert.equal(open.openUntil.getTime(), at("13:20", date).getTime());
+  });
+});
+
+test("DST days: a block over the changed hour runs by real time", () => {
+  const counter = counterWith({ pickupFrom: "01:00", pickupTo: "04:00", mode: "both", orderCutoff: "00:30" });
+  // Autumn: 01:00-04:00 local lasts 4 real hours (02:00-03:00 happens twice).
+  const autumn = getAvailableSlots({ counter, now: at("00:10", OCT_25), timezone: TZ });
+  assert.equal(autumn.length, 16);
+  assert.equal(autumn[15].end.getTime(), at("04:00", OCT_25).getTime());
+  // Spring: 02:00-03:00 does not exist, so it lasts 2 real hours.
+  const spring = getAvailableSlots({ counter, now: at("00:10", MAR_28), timezone: TZ });
+  assert.equal(spring.length, 8);
+  assert.equal(spring[7].end.getTime(), at("04:00", MAR_28).getTime());
+  const late = getCounterState({ counter, now: at("03:30", MAR_28), timezone: TZ });
+  assert.equal(late.state, COUNTER_STATES.OPEN);
+});

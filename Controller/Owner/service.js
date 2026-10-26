@@ -169,8 +169,8 @@ module.exports.createCounter = async (req) => {
 
   io.to(newCounter.entityId.toString()).emit("newCounter", newCounter);
 
-  // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-  io.to(`entity_${newCounter.entityId}`).emit("counterUpdate", {
+  // Socket event for guests (public room) and the entity_{entityId} room
+  io.to([`entity_${newCounter.entityId}`, "public"]).emit("counterUpdate", {
     action: "create",
     counter: newCounter,
     entityId: newCounter.entityId.toString(),
@@ -364,8 +364,8 @@ module.exports.createCounterMenuCategory = async (req) => {
     createdCategories
   );
 
-  // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-  io.to(`entity_${createdCategories[0].entityId}`).emit("categoryUpdate", {
+  // Socket event for guests (public room) and the entity_{entityId} room
+  io.to([`entity_${createdCategories[0].entityId}`, "public"]).emit("categoryUpdate", {
     action: "create",
     categories: createdCategories,
     entityId: createdCategories[0].entityId.toString(),
@@ -708,8 +708,8 @@ module.exports.createMenuItem = async (req) => {
   // Emit socket event to entity room (for owner)
   io.to(req.entityId.toString()).emit("newItem", createdItems);
 
-  // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-  io.to(`entity_${req.entityId}`).emit("itemUpdate", {
+  // Socket event for guests (public room) and the entity_{entityId} room
+  io.to([`entity_${req.entityId}`, "public"]).emit("itemUpdate", {
     action: "create",
     items: createdItems,
     entityId: req.entityId.toString(),
@@ -975,6 +975,11 @@ module.exports.updateMenuItem = async (req) => {
             isAlcohol16: isAlcohol16 ?? referenceItem.isAlcohol16 ?? false,
             unit: unit ?? referenceItem.unit,
             inStock: inStock ?? referenceItem.inStock ?? true,
+            // Same position, star and extras lists as the other copies, so
+            // the new counter's menu matches (edits apply to copies by name).
+            sortIndex: referenceItem.sortIndex ?? 0,
+            isRecommended: referenceItem.isRecommended ?? false,
+            extrasListIds: referenceItem.extrasListIds || [],
           });
           createdItems.push(newItem);
         }
@@ -982,7 +987,7 @@ module.exports.updateMenuItem = async (req) => {
         if (createdItems.length > 0) {
           const entityIdForEmit = referenceItem.entityId;
           io.to(entityIdForEmit.toString()).emit("newItem", createdItems);
-          io.to(`entity_${entityIdForEmit}`).emit("itemUpdate", {
+          io.to([`entity_${entityIdForEmit}`, "public"]).emit("itemUpdate", {
             action: "create",
             items: createdItems,
             entityId: entityIdForEmit.toString(),
@@ -1036,8 +1041,8 @@ module.exports.updateMenuItem = async (req) => {
 
       await item.save();
       io.to(item.entityId.toString()).emit("menuItemUpdated", item);
-      // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-      io.to(`entity_${item.entityId}`).emit("itemUpdate", {
+      // Socket event for guests (public room) and the entity_{entityId} room
+      io.to([`entity_${item.entityId}`, "public"]).emit("itemUpdate", {
         action: "edit",
         item: item,
         entityId: item.entityId.toString(),
@@ -1075,8 +1080,8 @@ module.exports.updateMenuItem = async (req) => {
       io.to(entityId.toString()).emit("menuItemUpdated", {
         itemId: deletedItemId,
       });
-      // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-      io.to(`entity_${entityId}`).emit("itemUpdate", {
+      // Socket event for guests (public room) and the entity_{entityId} room
+      io.to([`entity_${entityId}`, "public"]).emit("itemUpdate", {
         action: "delete",
         itemId: deletedItemId.toString(),
         entityId: entityId.toString(),
@@ -1131,8 +1136,8 @@ module.exports.updateMenuItem = async (req) => {
 
       await item.save();
       io.to(item.entityId.toString()).emit("menuItemUpdated", item);
-      // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-      io.to(`entity_${item.entityId}`).emit("itemUpdate", {
+      // Socket event for guests (public room) and the entity_{entityId} room
+      io.to([`entity_${item.entityId}`, "public"]).emit("itemUpdate", {
         action: "edit",
         item: item,
         entityId: item.entityId.toString(),
@@ -1170,8 +1175,8 @@ module.exports.updateMenuItem = async (req) => {
       io.to(entityId.toString()).emit("menuItemUpdated", {
         itemId: deletedItemId,
       });
-      // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-      io.to(`entity_${entityId}`).emit("itemUpdate", {
+      // Socket event for guests (public room) and the entity_{entityId} room
+      io.to([`entity_${entityId}`, "public"]).emit("itemUpdate", {
         action: "delete",
         itemId: deletedItemId.toString(),
         entityId: entityId.toString(),
@@ -1657,8 +1662,8 @@ module.exports.editCategory = async (req) => {
       newCategoryName: newCategoryName,
       entityId: req.entityId.toString(),
     });
-    // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-    io.to(`entity_${req.entityId}`).emit("categoryUpdate", {
+    // Socket event for guests (public room) and the entity_{entityId} room
+    io.to([`entity_${req.entityId}`, "public"]).emit("categoryUpdate", {
       action: "edit",
       categories: categories,
       oldCategoryName: categoryName,
@@ -1750,8 +1755,8 @@ module.exports.editCategory = async (req) => {
       categoryName: categoryName,
       entityId: req.entityId.toString(),
     });
-    // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-    io.to(`entity_${req.entityId}`).emit("categoryUpdate", {
+    // Socket event for guests (public room) and the entity_{entityId} room
+    io.to([`entity_${req.entityId}`, "public"]).emit("categoryUpdate", {
       action: "delete",
       categoryName: categoryName,
       entityId: req.entityId.toString(),
@@ -2024,8 +2029,8 @@ module.exports.updateCounterSettings = async (req) => {
 
     await counter.save();
     io.to(counter.entityId.toString()).emit("counterUpdate", { counterId });
-    // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-    io.to(`entity_${counter.entityId}`).emit("counterUpdate", {
+    // Socket event for guests (public room) and the entity_{entityId} room
+    io.to([`entity_${counter.entityId}`, "public"]).emit("counterUpdate", {
       action: "edit",
       counter: counter,
       counterId: counterId,
@@ -2168,8 +2173,8 @@ module.exports.updateCounterSettings = async (req) => {
     );
 
     io.to(counter.entityId.toString()).emit("counterUpdate", { counterId });
-    // Emit socket event to entity_{entityId} topic (for customers subscribed to this entity)
-    io.to(`entity_${counter.entityId}`).emit("counterUpdate", {
+    // Socket event for guests (public room) and the entity_{entityId} room
+    io.to([`entity_${counter.entityId}`, "public"]).emit("counterUpdate", {
       action: "delete",
       counterId: counterId,
       entityId: counter.entityId.toString(),

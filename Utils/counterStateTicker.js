@@ -12,7 +12,6 @@ const EntityDetails = require("../Models/EntityDetails");
 const redisClient = require("../redis");
 const { STATUS } = require("./globalConstants");
 const { getCounterState, resolveTimezone } = require("./ordering");
-const { sendFirebaseNotification } = require("./commonFunction");
 const {
   COUNTER_STATE_FIELDS,
   COUNTER_STATE_KEY_PREFIX,
@@ -43,25 +42,6 @@ const storeSnapshot = async (counterId, snapshot) => {
   if (!redisClient.isOpen) return;
   await redisClient.set(`${COUNTER_STATE_KEY_PREFIX}${counterId}`, snapshot, {
     EX: 7 * 24 * 60 * 60,
-  });
-};
-
-const notifyApps = (counter, state) => {
-  const data = {
-    action: "counter_state_update",
-    entityId: String(counter.entityId),
-    counterId: String(counter._id),
-    state: state.state,
-  };
-  sendFirebaseNotification({
-    topic: "customer_entity",
-    showNotification: false,
-    data: { ...data, topic: "customer_entity" },
-  });
-  sendFirebaseNotification({
-    topic: `owner_entity_${counter.entityId}`,
-    showNotification: false,
-    data: { ...data, topic: `owner_entity_${counter.entityId}` },
   });
 };
 
@@ -103,7 +83,6 @@ const runCounterStateTick = async ({ now = new Date() } = {}) => {
       continue;
     }
     await emitCounterState(counter, { state });
-    notifyApps(counter, state);
     changed.push(id);
   }
   return changed;
