@@ -15,6 +15,7 @@ const {
   normalizeOpeningHours,
   normalizePrepTime,
   emptyWeek,
+  getActivePause,
 } = require("../../Utils/ordering");
 const {
   COUNTER_STATE_FIELDS,
@@ -62,7 +63,9 @@ const toSettings = (counter, timezone, now = new Date()) => ({
   openingHours: fullWeek(counter.openingHours),
   prepTimeMinutes: counter.prepTimeMinutes,
   ordersPerSlot: counter.ordersPerSlot ?? null,
-  pause: counter.pause?.kind ? counter.pause : null,
+  // Only a pause that is still running: a timed pause that ran out must not
+  // keep the boards' pause banner up.
+  pause: getActivePause(counter.pause, now) ? counter.pause : null,
   orderingState: serializeState(getCounterState({ counter, now, timezone })),
   timezone,
 });

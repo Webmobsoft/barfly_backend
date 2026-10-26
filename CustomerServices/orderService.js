@@ -471,6 +471,18 @@ const updateStatusOfOrder = async (req) => {
     });
   }
 
+  // A finished order stays finished (a stale board must not reopen it).
+  if (
+    order.status === ORDER_STATUS.COMPLETED ||
+    order.status === ORDER_STATUS.CANCELLED
+  ) {
+    throwError({
+      status: STATUS_CODES.BAD_REQUEST,
+      message: t("ORDER_ALREADY_FINISHED", lang),
+      code: "ORDER_ALREADY_FINISHED",
+    });
+  }
+
   const updatedOrder = await Order.findOneAndUpdate(
     { _id: orderId },
     { $set: { status } },
@@ -1471,14 +1483,15 @@ const cancelOrder = async (req) => {
   const { orderId } = req.body;
 
   // A guest can only cancel their own order, and only while it is waiting
-  // or in process. Find + cancel in one atomic step: one round trip, and the
-  // restaurant cannot mark the order ready in between. `order` is the order
-  // as it was before the cancel (as before).
+  // (1.0.3 decision: once the kitchen started, it can't be cancelled).
+  // Find + cancel in one atomic step: one round trip, and the restaurant
+  // cannot start the order in between. `order` is the order as it was
+  // before the cancel (as before).
   const order = await Order.findOneAndUpdate(
     {
       _id: orderId,
       userId: req.userId,
-      status: { $in: [ORDER_STATUS.WAITING, ORDER_STATUS.IN_PROGRESS] },
+      status: ORDER_STATUS.WAITING,
     },
     { $set: { status: ORDER_STATUS.CANCELLED } },
     { new: false },
@@ -1489,9 +1502,15 @@ const cancelOrder = async (req) => {
   });
 
   if (!order) {
+    const started = await Order.exists({
+      _id: orderId,
+      userId: req.userId,
+      status: { $in: [ORDER_STATUS.IN_PROGRESS, ORDER_STATUS.READY] },
+    });
     throwError({
       status: STATUS_CODES.NOT_ACCEPTABLE,
-      message: t("ORDER_NOT_FOUND", lang),
+      message: t(started ? "ORDER_CANCEL_TOO_LATE" : "ORDER_NOT_FOUND", lang),
+      ...(started ? { code: "ORDER_CANCEL_TOO_LATE" } : {}),
     });
   }
 

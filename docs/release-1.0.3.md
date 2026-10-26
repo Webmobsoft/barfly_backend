@@ -70,7 +70,7 @@ From 1.0.3 on, `minVersion` works for the next release.
 
 ## What was tested (local demo setup)
 
-- Backend unit tests (33) and the end-to-end suites for Phase 0 (37 checks), Phase 1 (21) and Phase 2 (45). The suites live in `.handoff/` next to the repos; run them against a backend started with `.handoff/stub-firebase.js` (`BASE=http://localhost:<port> node .handoff/phase2.e2e.js`).
+- Backend unit tests (33) and the end-to-end suites for Phase 0 (37 checks), Phase 1 (21) and Phase 2 (48). The suites live in `.handoff/` next to the repos; run them against a backend started with `.handoff/stub-firebase.js` (`BASE=http://localhost:<port> node .handoff/phase2.e2e.js`).
 - Web panel board: 38 browser checks. Countr Plus and the customer app: their Phase 2 integration tests on iOS simulators.
 - One cross-app run with all three clients on one backend (41 checks): a guest slot order confirmed through the payment webhook, live on the web board and in Countr Plus; pause and resume; message, answer in the customer app, "Answer received"; In Process → Ready → Completed; chat locked; restaurant settings unchanged afterwards.
 - `scripts/build-indexes.js` on a copy with duplicates (refuses), without duplicates (swaps), and a backend started on old indexes (starts normally).

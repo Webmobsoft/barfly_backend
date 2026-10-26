@@ -241,6 +241,8 @@
   "OTP_SMS_MESSAGE": "Verwende diesen Code, um dein countr-Konto zu verifizieren: {{otp}}. Er ist 5 Minuten gültig",
   "ORDER_CANCEL_ERROR": "Fehler beim Stornieren der Bestellung",
   "ORDER_CANCEL_SUCCESS": "Bestellung erfolgreich storniert",
+  "ORDER_ALREADY_FINISHED": "Diese Bestellung ist bereits abgeschlossen oder storniert.",
+  "ORDER_CANCEL_TOO_LATE": "Das Restaurant bereitet Ihre Bestellung bereits zu, sie kann nicht mehr storniert werden.",
   "ORDER_CREATE_ERROR": "Fehler beim Erstellen der Bestellung",
   "ORDER_CREATE_SUCCESS": "Bestellung erfolgreich erstellt",
   "ORDER_CANNOT_CANCEL": "Entschuldigung! Bestellung kann jetzt nicht storniert werden",

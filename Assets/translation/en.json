@@ -253,6 +253,8 @@
   "OTP_SMS_MESSAGE": "Use this code to verify your countr account: {{otp}}. It is valid for 5 minutes.",
   "ORDER_CANCEL_ERROR": "Error while cancelling the order",
   "ORDER_CANCEL_SUCCESS": "Order cancelled successfully.",
+  "ORDER_ALREADY_FINISHED": "This order is already completed or cancelled.",
+  "ORDER_CANCEL_TOO_LATE": "The restaurant is already preparing your order, so it can no longer be cancelled.",
   "ORDER_CREATE_ERROR": "Error while adding order",
   "ORDER_CREATE_SUCCESS": "Order created successfully.",
   "ORDER_CANNOT_CANCEL": "Apologies! order cannot be cancelled now.",
