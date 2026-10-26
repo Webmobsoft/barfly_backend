@@ -89,6 +89,8 @@ orderSchme.index({ entityId: 1, tokenNumber: -1 });
 // idempotency lookup by Wallee transaction.
 orderSchme.index({ userId: 1, status: 1, updatedAt: -1 });
 orderSchme.index({ userId: 1, createdAt: -1, entityId: 1 });
-orderSchme.index({ walleeTransactionId: 1 }, { sparse: true });
+// One order per Wallee transaction. On an existing database the plain index
+// is swapped for this one by scripts/build-indexes.js (after a duplicate check).
+orderSchme.index({ walleeTransactionId: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model("Order", orderSchme);

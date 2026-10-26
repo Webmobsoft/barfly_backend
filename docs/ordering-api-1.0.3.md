@@ -58,6 +58,7 @@ A restaurant is `open` when any of its counters is open.
 ## Setup
 
 - Opening hours for existing restaurants: `node scripts/set-opening-hours.js --entity <id> --file hours.json [--dry-run]`.
+- Indexes on an existing database (before deploying): `node scripts/build-indexes.js [--apply]`. See [release-1.0.3.md](release-1.0.3.md).
 - Rules tests: `npm run test:unit`.
 
 # Phase 2 — order board, order chat, live updates

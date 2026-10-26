@@ -11,6 +11,8 @@ const favouriteSchema = new Schema(
 );
 
 // Indexes for the guest app's hot queries (see docs/ordering-api-1.0.3.md).
-favouriteSchema.index({ userId: 1, entityId: 1 });
+// One row per guest and restaurant, so concurrent upserts cannot duplicate it.
+// On an existing database scripts/build-indexes.js swaps the plain index for it.
+favouriteSchema.index({ userId: 1, entityId: 1 }, { unique: true });
 
 module.exports = mongoose.model("FavouriteEntity", favouriteSchema);
