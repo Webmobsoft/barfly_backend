@@ -659,7 +659,6 @@
   "OWNER_MENU_ITEM_NOT_FOUND": "Item not found.",
   "MESSAGE_ORDER_NOT_FOUND": "Order not found.",
   "MESSAGE_CHAT_CLOSED": "This chat is closed. Messages are only possible while the order is open.",
-  "MESSAGE_GUEST_CANNOT_START": "Only the restaurant can start a conversation.",
   "MESSAGE_TEXT_INVALID": "Please enter a message of up to 500 characters.",
   "MESSAGE_FETCH_SUCCESS": "Messages fetched successfully.",
   "MESSAGE_FETCH_ERROR": "Could not load the messages.",

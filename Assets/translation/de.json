@@ -659,7 +659,6 @@
   "OWNER_MENU_ITEM_NOT_FOUND": "Produkt nicht gefunden.",
   "MESSAGE_ORDER_NOT_FOUND": "Bestellung nicht gefunden.",
   "MESSAGE_CHAT_CLOSED": "Dieser Chat ist geschlossen. Nachrichten sind nur möglich, solange die Bestellung offen ist.",
-  "MESSAGE_GUEST_CANNOT_START": "Nur das Restaurant kann eine Unterhaltung beginnen.",
   "MESSAGE_TEXT_INVALID": "Bitte gib eine Nachricht mit höchstens 500 Zeichen ein.",
   "MESSAGE_FETCH_SUCCESS": "Nachrichten erfolgreich geladen.",
   "MESSAGE_FETCH_ERROR": "Die Nachrichten konnten nicht geladen werden.",

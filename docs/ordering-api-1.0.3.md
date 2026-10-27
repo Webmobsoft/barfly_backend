@@ -81,7 +81,7 @@ A restaurant is `open` when any of its counters is open.
 - `asap`: orders with `pickupMode: "asap"` or no `pickupMode` (older orders), oldest first; `ageMinutes` counts from `createdAt`.
 - `slots`: one row per slot start that has orders on this tab — overdue rows first, then running, then upcoming, each by start; orders inside oldest first.
 - `booked` counts every order holding the slot (also Ready / Completed and recent Payment Processing, as for the guest's free slots). In the all-counters view a row may hold several counters: `booked` and `limit` are the sums over those counters (`limit` null if one has no limit), `prepareFrom` uses the longest prep time.
-- Order: `_id, tokenNumber, status, counterId, counterName, countrTag, userId, createdAt, updatedAt, totalAmount, finalAmount, isSelfPickup, tableNo, note, pickupMode, pickupSlotStart, pickupSlotLength, items[{ itemId, itemName, quantity, note, categoryId, categoryName, categorySortIndex, extras[{ extraId, name, price }], unitPrice, lineTotal }], latestMessage: { sender, text, createdAt, viaVoice } | null, unreadFromGuest`.
+- Order: `_id, tokenNumber, status, counterId, counterName, countrTag, userId, createdAt, updatedAt, totalAmount, finalAmount, isSelfPickup, tableNo, note, pickupMode, pickupSlotStart, pickupSlotLength, items[{ itemId, itemName, quantity, note, categoryId, categoryName, categorySortIndex, extras[{ extraId, name, price }], unitPrice, lineTotal }], latestMessage: { sender, text, createdAt, viaVoice } | null, unreadFromGuest, restaurantWrote` (`restaurantWrote` is false while only the guest has written, so the ticket shows "New message" instead of "Answer received").
 - Use `serverTime` (not the device clock) to count down `minutesLeft` / ticket age between refreshes.
 
 ## Order chat
@@ -97,12 +97,12 @@ Mounted at `/api/orders` (`Controller/messageController.js`). The same paths ser
 Rules (errors are `{ message, code }`):
 - Restaurant: only orders of its own restaurant; guest: only own orders. Otherwise `404` `MESSAGE_ORDER_NOT_FOUND`.
 - Sending only while the order is Waiting / In Process / Ready, else `400` `MESSAGE_CHAT_CLOSED`.
-- The guest can only reply: before the first restaurant message `400` `MESSAGE_GUEST_CANNOT_START` (`canSend` is false).
+- Either side can write first while the order is open (`canSend` = `chatOpen` for both).
 - Text is trimmed, 1–500 characters, else `400` `MESSAGE_TEXT_INVALID` (`data.maxLength`).
 
 Push:
 - Restaurant message → topic `user_<guestId>`, visible with sound, title = restaurant name, body = text, data `{ action: "order_message", screen: "order_chat", orderId, entityId, orderNo }`.
-- Guest reply → topic `owner_entity_<entityId>`, silent, data `{ action: "order_message", screen: "order_board", orderId, entityId, orderNo }`.
+- Guest message → topic `owner_entity_<entityId>`, visible with sound (`alertSound`), title `New message · Order <tokenNumber>`, body = text, data `{ action: "order_message", screen: "order_board", orderId, entityId, orderNo }`.
 
 Guest order endpoints `GET /api/orders/get-live-orders-user` and `GET /api/orders/get-particular-live-order-details-customer` now add per order: `hasMessages`, `unreadMessages` (restaurant messages the guest has not read) and `latestMessage` (`{ sender, text, createdAt, viaVoice }` or `null`).
 

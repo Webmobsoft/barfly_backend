@@ -176,6 +176,8 @@ const getBoard = async (req, lang) => {
       items: (order.items || []).map((item) => toBoardItem(item, itemNames)),
       latestMessage: summary?.latestMessage || null,
       unreadFromGuest: (summary?.unread || 0) > 0,
+      // false while the guest wrote first and nobody answered yet.
+      restaurantWrote: Boolean(summary?.restaurantWrote),
     };
   });
 

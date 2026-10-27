@@ -3,8 +3,8 @@ const mongoose = require("mongoose");
 const Schema = mongoose.Schema;
 const { ObjectId } = mongoose.Types;
 
-// One chat message about an order. The restaurant always writes first; the
-// guest can only reply, and the thread locks when the order is finished.
+// One chat message about an order. Either side can write first; the thread
+// locks when the order is finished.
 const orderMessageSchema = new Schema(
   {
     orderId: { type: ObjectId, ref: "Order", required: true },

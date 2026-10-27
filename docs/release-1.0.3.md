@@ -45,6 +45,7 @@ From 1.0.3 on, `minVersion` works for the next release.
    - [ ] Order a pickup slot and pay. The order appears in its slot row on the web board and in Countr Plus without a reload.
    - [ ] Pause for 15 minutes on the web board. The guest pill shows the pause; checkout is blocked. Resume.
    - [ ] Send a message from the ticket. The guest gets a push and a badge, opens the chat and answers. The ticket shows "Answer received".
+   - [ ] On another open order, the guest writes first. Countr Plus plays the order alert and the ticket shows "New message".
    - [ ] Mark the order as In Process, Ready, then Completed. The guest's chat turns read-only.
    - [ ] The Wallee webhook still marks orders paid (check the backend log for `Webhook: order … -> WAITING`).
 
@@ -70,8 +71,8 @@ From 1.0.3 on, `minVersion` works for the next release.
 
 ## What was tested (local demo setup)
 
-- Backend unit tests (33) and the end-to-end suites for Phase 0 (37 checks), Phase 1 (21) and Phase 2 (48). The suites live in `.handoff/` next to the repos; run them against a backend started with `.handoff/stub-firebase.js` (`BASE=http://localhost:<port> node .handoff/phase2.e2e.js`).
-- Web panel board: 38 browser checks. Countr Plus and the customer app: their Phase 2 integration tests on iOS simulators.
+- Backend unit tests (33) and the end-to-end suites for Phase 0 (37 checks), Phase 1 (21) and Phase 2 (51). The suites live in `.handoff/` next to the repos; run them against a backend started with `.handoff/stub-firebase.js` (`BASE=http://localhost:<port> node .handoff/phase2.e2e.js`).
+- Web panel board: 41 browser checks. Countr Plus and the customer app: their Phase 2 integration tests on iOS simulators.
 - One cross-app run with all three clients on one backend (41 checks): a guest slot order confirmed through the payment webhook, live on the web board and in Countr Plus; pause and resume; message, answer in the customer app, "Answer received"; In Process → Ready → Completed; chat locked; restaurant settings unchanged afterwards.
 - `scripts/build-indexes.js` on a copy with duplicates (refuses), without duplicates (swaps), and a backend started on old indexes (starts normally).
 - Not tested: real Wallee payments, real push delivery, Android devices, and voice input on a real iPad or phone.

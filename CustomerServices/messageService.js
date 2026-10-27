@@ -1,6 +1,6 @@
-// Chat between the restaurant and the guest about one order. The restaurant
-// always writes first; the guest can only reply, and the thread locks once the
-// order is Completed or Cancelled.
+// Chat between the restaurant and the guest about one order. Either side can
+// write first while the order is open; the thread locks once the order is
+// Completed or Cancelled.
 
 const mongoose = require("mongoose");
 const Order = require("../Models/Order");
@@ -25,7 +25,6 @@ const OPEN_STATUSES = [
 const MESSAGE_ERRORS = {
   ORDER_NOT_FOUND: "MESSAGE_ORDER_NOT_FOUND",
   CHAT_CLOSED: "MESSAGE_CHAT_CLOSED",
-  GUEST_CANNOT_START: "MESSAGE_GUEST_CANNOT_START",
   TEXT_INVALID: "MESSAGE_TEXT_INVALID",
 };
 
@@ -53,10 +52,11 @@ const toLatest = (message) =>
     : null;
 
 /**
- * Per order: whether there is a thread, the latest message, and how many
- * messages from the other side are unread.
+ * Per order: whether there is a thread, the latest message, how many
+ * messages from the other side are unread, and whether the restaurant has
+ * written at all (a guest message is then an answer, not a new question).
  * @param viewer "restaurant" | "guest" — whose unread messages to count.
- * @returns Map<orderId, { hasMessages, latestMessage, unread }>
+ * @returns Map<orderId, { hasMessages, latestMessage, unread, restaurantWrote }>
  */
 const getMessageSummaries = async (orderIds, viewer) => {
   const ids = [...new Set((orderIds || []).map(String))]
@@ -87,6 +87,9 @@ const getMessageSummaries = async (orderIds, viewer) => {
             ],
           },
         },
+        fromRestaurant: {
+          $sum: { $cond: [{ $eq: ["$sender", SENDERS.RESTAURANT] }, 1, 0] },
+        },
       },
     },
   ]);
@@ -95,12 +98,18 @@ const getMessageSummaries = async (orderIds, viewer) => {
       hasMessages: true,
       latestMessage: toLatest(row.latest),
       unread: row.unread,
+      restaurantWrote: row.fromRestaurant > 0,
     });
   });
   return result;
 };
 
-const EMPTY_SUMMARY = { hasMessages: false, latestMessage: null, unread: 0 };
+const EMPTY_SUMMARY = {
+  hasMessages: false,
+  latestMessage: null,
+  unread: 0,
+  restaurantWrote: false,
+};
 
 // Adds hasMessages / unreadMessages / latestMessage to guest order objects.
 const withGuestMessageInfo = async (orders) => {
@@ -149,15 +158,11 @@ const listMessages = async (req, lang) => {
     .sort({ createdAt: 1, _id: 1 })
     .lean();
   const chatOpen = OPEN_STATUSES.includes(order.status);
-  const hasRestaurantMessage = messages.some(
-    (message) => message.sender === SENDERS.RESTAURANT,
-  );
   return {
     orderId: order._id,
     status: order.status,
     chatOpen,
-    canSend:
-      chatOpen && (sender === SENDERS.RESTAURANT || hasRestaurantMessage),
+    canSend: chatOpen,
     messages: messages.map(toMessage),
   };
 };
@@ -203,10 +208,14 @@ const notifyNewMessage = async (order, message) => {
     });
     return;
   }
+  // A guest message needs the kitchen's attention: visible, with sound.
   sendFirebaseNotification({
     topic: `owner_entity_${entityId}`,
-    showNotification: false,
-    title: "New message",
+    showNotification: true,
+    alertSound: true,
+    title: order.tokenNumber
+      ? `New message · Order ${order.tokenNumber}`
+      : "New message",
     body: message.text,
     data: {
       action: "order_message",
@@ -224,15 +233,6 @@ const sendMessage = async (req, lang) => {
   const text = normalizeText(req.body?.text, lang);
   if (!OPEN_STATUSES.includes(order.status)) {
     fail(STATUS_CODES.BAD_REQUEST, MESSAGE_ERRORS.CHAT_CLOSED, lang);
-  }
-  if (sender === SENDERS.GUEST) {
-    const started = await OrderMessage.exists({
-      orderId: order._id,
-      sender: SENDERS.RESTAURANT,
-    });
-    if (!started) {
-      fail(STATUS_CODES.BAD_REQUEST, MESSAGE_ERRORS.GUEST_CANNOT_START, lang);
-    }
   }
 
   const created = await OrderMessage.create({
