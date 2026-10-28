@@ -176,8 +176,13 @@ const getCandidateSlots = (instances, now, prepMinutes) => {
   return [...slots.values()].sort((a, b) => a.start - b.start);
 };
 
+// `at` / `kind`: the next moment guests can order (the board refreshes on
+// it). `pickupFrom` / `blockName`: the block that opens first for pickup,
+// which is what guests see as "opens at". They differ for pre-order blocks:
+// pre-ordering for 09:55 starts at 00:00, but the venue opens at 09:55.
 const getNextOpening = (instances, now) => {
   let next = null;
+  let firstBlock = null;
   instances.forEach((instance) => {
     const candidates = [];
     if (instance.asapWindow) {
@@ -186,17 +191,23 @@ const getNextOpening = (instances, now) => {
     instance.slotWindows.forEach((window) =>
       candidates.push({ at: window.start, kind: "preorder" }),
     );
-    candidates.forEach((candidate) => {
-      if (candidate.at > now && (!next || candidate.at < next.at)) {
-        next = {
-          ...candidate,
-          pickupFrom: instance.pickupStart,
-          blockName: instance.name || null,
-        };
-      }
+    const upcoming = candidates.filter((candidate) => candidate.at > now);
+    upcoming.forEach((candidate) => {
+      if (!next || candidate.at < next.at) next = candidate;
     });
+    if (
+      upcoming.length &&
+      (!firstBlock || instance.pickupStart < firstBlock.pickupStart)
+    ) {
+      firstBlock = instance;
+    }
   });
-  return next;
+  if (!next) return null;
+  return {
+    ...next,
+    pickupFrom: firstBlock.pickupStart,
+    blockName: firstBlock.name || null,
+  };
 };
 
 /**
@@ -325,10 +336,18 @@ const getEntityState = (counterStates) => {
   const best = [...counterStates].sort(
     (a, b) => STATE_PRIORITY.indexOf(a.state) - STATE_PRIORITY.indexOf(b.state),
   )[0];
-  const nextOpening = counterStates
+  const openings = counterStates
     .map((state) => state.nextOpening)
-    .filter(Boolean)
-    .sort((a, b) => a.at - b.at)[0];
+    .filter(Boolean);
+  const earliest = (key) =>
+    [...openings].sort((a, b) => a[key] - b[key])[0];
+  const nextOpening = openings.length
+    ? {
+        ...earliest("at"),
+        pickupFrom: earliest("pickupFrom").pickupFrom,
+        blockName: earliest("pickupFrom").blockName,
+      }
+    : null;
   return {
     state: best.state,
     acceptsAsap: counterStates.some((state) => state.acceptsAsap),
@@ -339,6 +358,23 @@ const getEntityState = (counterStates) => {
     pauseKind: best.pauseKind || null,
     nextOpening: nextOpening || null,
   };
+};
+
+// Guest restaurant list: open first, then pre-order, paused, opening soon
+// (soonest pickup first) and restaurants without hours. Returns 0 within a
+// group, so a stable sort keeps the list's own order (newest, popular).
+const compareForGuestList = (a, b) => {
+  const rank = (state) => {
+    const index = STATE_PRIORITY.indexOf(state?.state);
+    return index < 0 ? STATE_PRIORITY.length : index;
+  };
+  const byState = rank(a) - rank(b);
+  if (byState || a?.state !== COUNTER_STATES.UPCOMING) return byState;
+  const opensAt = (state) =>
+    state?.nextOpening?.pickupFrom
+      ? new Date(state.nextOpening.pickupFrom).getTime()
+      : Infinity;
+  return opensAt(a) - opensAt(b) || 0;
 };
 
 module.exports = {
@@ -352,6 +388,7 @@ module.exports = {
   getCounterState,
   getAvailableSlots,
   getEntityState,
+  compareForGuestList,
   getActivePause,
   computePauseUntil,
 };

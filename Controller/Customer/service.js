@@ -39,6 +39,7 @@ const {
   COUNTER_STATES,
   SLOT_LENGTH_MINUTES,
   getCounterState,
+  compareForGuestList,
 } = require("../../Utils/ordering");
 const {
   COUNTER_STATE_FIELDS,
@@ -62,7 +63,8 @@ const UserAppFeedback = require("../../Models/UserAppFeedback");
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Restaurant list for the guest home screen. "ongoing" = guests can order
-// right now (ASAP or pre-order); everything else is listed after it. Each
+// right now (ASAP or pre-order); everything else is listed after it, the
+// soonest opening first (compareForGuestList). Each
 // entity carries `orderingState` for its card pill (open, opens at, paused).
 // The two keys keep their pre-1.0.3 names so older builds still read them.
 module.exports.getEntities = async (req) => {
@@ -130,6 +132,8 @@ module.exports.getEntities = async (req) => {
   const orderableNow = (entity) =>
     entity.orderingState.state === COUNTER_STATES.OPEN ||
     entity.orderingState.state === COUNTER_STATES.PREORDER;
+
+  visible.sort((a, b) => compareForGuestList(a.orderingState, b.orderingState));
 
   const start = Number(skip) || 0;
   const remaining = visible.filter((entity) => !orderableNow(entity));

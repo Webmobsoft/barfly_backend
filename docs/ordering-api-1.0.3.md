@@ -12,7 +12,7 @@ Returned as `orderingState` on counters and restaurants.
 | `acceptsAsap` / `acceptsSlots` | What the checkout may offer right now |
 | `openUntil` | End of the current ASAP window (pickup end − prep time) |
 | `pickupFrom` | Start of pickup for the current block (or first free slot when `preorder`) |
-| `nextOpening` | `{ at, kind: "asap" \| "preorder", pickupFrom }` or `null` |
+| `nextOpening` | `{ at, kind: "asap" \| "preorder", pickupFrom, blockName }` or `null`. `at` / `kind`: the next moment guests can order (pre-order blocks: 00:00 of their day). `pickupFrom` / `blockName`: the block that opens first for pickup; guest apps show this as "opens at". |
 | `pausedUntil` / `pauseKind` | `pausedUntil: null` with `pauseKind: "manual"` = paused until resumed |
 | `prepTimeMinutes`, `timezone` | Counter prep time, venue timezone |
 
@@ -20,7 +20,7 @@ A restaurant is `open` when any of its counters is open.
 
 ## Guest endpoints
 
-- `GET /api/customer/entities/get-entities` — unchanged keys. `ongoingEventEntities` = orderable now (`open` or `preorder`), `remainingEntities` = the rest. Each entity has `orderingState`.
+- `GET /api/customer/entities/get-entities` — unchanged keys. `ongoingEventEntities` = orderable now (`open`, then `preorder`), `remainingEntities` = the rest: `paused`, `upcoming` by `nextOpening.pickupFrom` (soonest first), then no hours. Within a group the query order stays (newest, or most viewed with `isPopular`). Each entity has `orderingState`.
 - `GET /api/customer/entities/get-counter-list?entityId=` — each counter has `orderingState`. `isLive` = `acceptsAsap || acceptsSlots`. `eventId` is always `null`.
 - `GET /api/customer/entities/pickup-slots?counterId=` (public) — `{ orderingState, slotLengthMinutes: 15, slots: [{ start, end, remaining }] }`. Only free slots are listed; `remaining` is `null` when there is no limit.
 - `POST /api/orders/create-order`

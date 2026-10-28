@@ -6,6 +6,7 @@ const {
   getCounterState,
   getAvailableSlots,
   getEntityState,
+  compareForGuestList,
   computePauseUntil,
   COUNTER_STATES,
 } = require("../../Utils/ordering");
@@ -249,6 +250,88 @@ test("block name: the open or pre-order block's name, and the next opening's", (
   assert.equal(between.nextOpening.blockName, null);
   const night = getCounterState({ counter, now: at("21:30"), timezone: TZ });
   assert.equal(night.nextOpening.blockName, "Lunch");
+});
+
+const THU_22 = { year: 2026, month: 10, day: 22 };
+// Monday = 0, so Thursday = 3.
+const onlyOn = (day, blocks) => ({
+  status: "Active",
+  prepTimeMinutes: 10,
+  openingHours: [{ day, enabled: true, blocks }],
+});
+
+test("next opening: a pre-order block shows its pickup start, not 00:00", () => {
+  const counter = onlyOn(3, [
+    { pickupFrom: "09:55", pickupTo: "14:00", mode: "preorder", orderCutoff: "09:30" },
+  ]);
+  const state = getCounterState({ counter, now: at("20:00"), timezone: TZ });
+  assert.equal(state.state, COUNTER_STATES.UPCOMING);
+  // Ordering starts at midnight (the board refreshes then) ...
+  assert.equal(state.nextOpening.kind, "preorder");
+  assert.equal(state.nextOpening.at.getTime(), at("00:00", THU_22).getTime());
+  // ... but guests are told the venue opens at 09:55.
+  assert.equal(state.nextOpening.pickupFrom.getTime(), at("09:55", THU_22).getTime());
+});
+
+test("next opening: the earliest pickup wins over an earlier pre-order start", () => {
+  const counter = {
+    status: "Active",
+    prepTimeMinutes: 10,
+    openingHours: Array.from({ length: 7 }, (_, day) => ({
+      day,
+      enabled: true,
+      blocks: [
+        { pickupFrom: "11:00", pickupTo: "14:00", mode: "live", name: "Lunch" },
+        { pickupFrom: "18:00", pickupTo: "21:00", mode: "preorder", orderCutoff: "17:00", name: "Dinner" },
+      ],
+    })),
+  };
+  const night = getCounterState({ counter, now: at("21:30"), timezone: TZ });
+  assert.equal(night.nextOpening.at.getTime(), at("00:00", THU_22).getTime());
+  assert.equal(night.nextOpening.pickupFrom.getTime(), at("11:00", THU_22).getTime());
+  assert.equal(night.nextOpening.blockName, "Lunch");
+});
+
+test("entity next opening: earliest change and earliest pickup across counters", () => {
+  const now = at("20:00");
+  const preorder = getCounterState({
+    counter: onlyOn(3, [
+      { pickupFrom: "09:55", pickupTo: "14:00", mode: "preorder", orderCutoff: "09:30" },
+    ]),
+    now,
+    timezone: TZ,
+  });
+  const live = getCounterState({
+    counter: onlyOn(3, [{ pickupFrom: "08:00", pickupTo: "10:00", mode: "live", name: "Breakfast" }]),
+    now,
+    timezone: TZ,
+  });
+  const entity = getEntityState([preorder, live]);
+  assert.equal(entity.state, COUNTER_STATES.UPCOMING);
+  assert.equal(entity.nextOpening.at.getTime(), at("00:00", THU_22).getTime());
+  assert.equal(entity.nextOpening.pickupFrom.getTime(), at("08:00", THU_22).getTime());
+  assert.equal(entity.nextOpening.blockName, "Breakfast");
+});
+
+test("guest list: open, pre-order, paused, soonest opening, then no hours", () => {
+  const upcoming = (hhmm) => ({
+    state: COUNTER_STATES.UPCOMING,
+    nextOpening: { at: at("00:00", THU_22), pickupFrom: at(hhmm, THU_22) },
+  });
+  const list = [
+    { name: "none", state: { state: COUNTER_STATES.NO_HOURS } },
+    { name: "late", state: upcoming("18:00") },
+    { name: "paused", state: { state: COUNTER_STATES.PAUSED } },
+    { name: "soon", state: upcoming("09:55") },
+    { name: "preorder", state: { state: COUNTER_STATES.PREORDER } },
+    { name: "open-a", state: { state: COUNTER_STATES.OPEN } },
+    { name: "open-b", state: { state: COUNTER_STATES.OPEN } },
+  ];
+  const sorted = [...list].sort((a, b) => compareForGuestList(a.state, b.state));
+  assert.deepEqual(
+    sorted.map((entry) => entry.name),
+    ["open-a", "open-b", "preorder", "paused", "soon", "late", "none"],
+  );
 });
 
 // Sunday 25 Oct 2026: 03:00 CEST -> 02:00 CET. Sunday 28 Mar 2027: 02:00 CET -> 03:00 CEST.
