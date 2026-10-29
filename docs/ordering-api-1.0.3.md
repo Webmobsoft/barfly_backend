@@ -39,7 +39,7 @@ A restaurant is `open` when any of its counters is open.
 ## Owner endpoints (`/api/owner/restaurant`)
 
 - `GET /counter-ordering-settings[?counterId=]` — `{ counterId, counterName, openingHours[7], prepTimeMinutes, ordersPerSlot, pause, orderingState, timezone }` (array without `counterId`).
-- `PUT /counter-opening-hours` — `{ counterId, prepTimeMinutes?, openingHours: [{ day: 0-6 (Mon-Sun), enabled, blocks: [{ name?, pickupFrom: "HH:mm", pickupTo: "HH:mm", mode: "live" | "preorder" | "both", orderCutoff: "HH:mm" (preorder/both) }] }] }`. Max 2 blocks per day, no overlap, cut-off at or before pickup start, a block ending before it starts runs past midnight. Errors: `400` with `code` (`HOURS_*`) and `data.errors`.
+- `PUT /counter-opening-hours` — `{ counterId, prepTimeMinutes?, openingHours: [{ day: 0-6 (Mon-Sun), enabled, blocks: [{ name?, pickupFrom: "HH:mm", pickupTo: "HH:mm", mode: "live" | "preorder" | "both", orderCutoff: "HH:mm" (preorder/both) }] }] }`. Max 2 blocks per day, no overlap, cut-off at or before pickup start, a block ending before it starts runs past midnight. The hours are wall-clock times of the owner: the `timezone` header (IANA, e.g. `Asia/Kolkata`) the owner's app or browser sends is stored on the restaurant (`EntityDetails.timezone`, also set at registration). Restaurants that never sent one stay on `Europe/Zurich`. All instants in responses are UTC; guest apps show them on the phone's clock. Errors: `400` with `code` (`HOURS_*`) and `data.errors`.
 - `PUT /counter-orders-per-slot` — `{ counterId, ordersPerSlot }` (`null`/`0` = no limit).
 - `POST /pause-orders` — `{ counterId?, kind: "15m" | "30m" | "manual" | "today" }`. Without `counterId` every counter is paused.
 - `POST /resume-orders` — `{ counterId? }`.

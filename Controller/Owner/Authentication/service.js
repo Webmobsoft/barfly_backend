@@ -6,6 +6,7 @@ const {
   sendFirebaseNotification,
 } = require("../../../Utils/commonFunction");
 const crypto = require("crypto");
+const { isValidTimezone } = require("../../../Utils/ordering");
 const OtpSession = require("../../../Models/sessions");
 const { createMail, sendSMS } = require("../../../Utils/mailer");
 const {
@@ -215,6 +216,10 @@ module.exports.register = async (req) => {
       status: STATUS.ACTIVE,
       state,
       location,
+      // The owner's device timezone: opening hours are read in it.
+      ...(isValidTimezone(req.headers?.timezone)
+        ? { timezone: req.headers.timezone }
+        : {}),
     });
   } catch (err) {
     // Roll the user back so the next attempt isn't blocked by

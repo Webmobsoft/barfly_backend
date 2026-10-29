@@ -20,6 +20,7 @@ const {
 const {
   COUNTER_STATE_FIELDS,
   getEntityTimezone,
+  saveEntityTimezone,
   serializeState,
   emitCounterState,
 } = require("../../CustomerServices/orderingService");
@@ -146,6 +147,7 @@ router.put(
         });
       }
 
+      await saveEntityTimezone(req.entityId, req.headers?.timezone);
       const updated = await Counter.findOneAndUpdate(
         { _id: counter._id },
         {

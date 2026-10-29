@@ -13,6 +13,7 @@ const {
   getAvailableSlots,
   getEntityState,
   resolveTimezone,
+  isValidTimezone,
   SLOT_LENGTH_MINUTES,
 } = require("../Utils/ordering");
 
@@ -25,6 +26,17 @@ const COUNTER_STATE_FIELDS =
 const getEntityTimezone = async (entityId) => {
   const entity = await EntityDetails.findById(entityId, { timezone: 1 }).lean();
   return resolveTimezone(entity?.timezone);
+};
+
+// Opening hours are wall-clock times on the owner's side, so the restaurant
+// takes the IANA timezone the owner's device sends (`timezone` header) when
+// the hours are saved. Restaurants that never sent one keep the default.
+const saveEntityTimezone = async (entityId, timezone) => {
+  if (!isValidTimezone(timezone)) return;
+  await EntityDetails.updateOne(
+    { _id: entityId, timezone: { $ne: timezone } },
+    { $set: { timezone } },
+  );
 };
 
 // Orders holding a slot: everything except failed/cancelled payments, and
@@ -277,6 +289,7 @@ module.exports = {
   SLOT_LENGTH_MINUTES,
   COUNTER_STATE_FIELDS,
   getEntityTimezone,
+  saveEntityTimezone,
   getBookedCounts,
   getCounterStateFor,
   getSlotsFor,
