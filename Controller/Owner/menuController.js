@@ -49,26 +49,37 @@ const handle = (fn, successKey, errorKey) => async (req, res) => {
   }
 };
 
-// Owner boards and guest apps refetch the menu on these.
-const announceMenuChange = (entityId) => {
+// Owner boards and guest apps refetch the menu on these. Items always (their
+// order follows the categories); the categories too when they changed.
+const announceMenuChange = (entityId, { categories = false } = {}) => {
   const io = getIo();
   if (io) {
     io.to(String(entityId)).emit("menuItemUpdated", { entityId: String(entityId) });
     io.to("public").emit("itemUpdate", { action: "edit", entityId: String(entityId) });
+    if (categories) {
+      io.to([String(entityId), "public"]).emit("categoryUpdate", {
+        action: "order",
+        entityId: String(entityId),
+      });
+    }
   }
+  const actions = categories ? ["category_update", "item_update"] : ["item_update"];
   ["owner_entity_", "entity_"].forEach((prefix) =>
-    sendFirebaseNotification({
-      topic: `${prefix}${entityId}`,
-      showNotification: false,
-      title: "Menu updated",
-      body: "The menu was updated.",
-      data: {
-        action: "item_update",
-        screen: "menu_screen",
-        click_action: "FLUTTER_NOTIFICATION_CLICK",
+    actions.forEach((action) =>
+      sendFirebaseNotification({
         topic: `${prefix}${entityId}`,
-      },
-    }),
+        showNotification: false,
+        title: "Menu updated",
+        body: "The menu was updated.",
+        data: {
+          action,
+          screen: "menu_screen",
+          entityId: String(entityId),
+          click_action: "FLUTTER_NOTIFICATION_CLICK",
+          topic: `${prefix}${entityId}`,
+        },
+      }),
+    ),
   );
 };
 
@@ -293,7 +304,7 @@ router.put(
           },
         })),
       );
-      announceMenuChange(req.entityId);
+      announceMenuChange(req.entityId, { categories: true });
       return { data: names };
     },
     "MENU_ORDER_SAVE_SUCCESS",
